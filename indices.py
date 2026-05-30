@@ -1,7 +1,7 @@
 def media_movel_temperatura(dados_climaticos, janela=7):
     medias=[]
 
-    for i in renge(len(dados_climaticos)):
+    for i in range(len(dados_climaticos)):
         inicio = max(0, i - janela + 1)
         fatia = dados_climaticos[inicio + 1]
         tempo_total = sum(d.tempo_media for d in fatia)
