@@ -2,9 +2,6 @@ import requests
 from datetime import datetime,timedelta
 
 
-
-
-
 def coordenadas():
     while True:
         try:
