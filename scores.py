@@ -172,7 +172,7 @@ if __name__ == "__main__":
     analise_obs = analisar_obs(obs)
     print(f"[3/5] Observacao: {analise_obs['sentimento']} ({analise_obs['total_alertas']} alertas)")
 
-    # 5. NDVI (opcional)
+    # 5. NDVI 
     ndvi_max = None
     try:
         dados_ndvi = buscar_ndvi(lat, lon, data_plantio_dt, datetime.now(), intervalo_dias=30)
