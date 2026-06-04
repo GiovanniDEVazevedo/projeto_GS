@@ -1,14 +1,17 @@
 import ee
-from google.oauth2 import service_account 
+from google.oauth2 import service_account
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+import sys
 
 def autenticar_gee(caminho_chave):
     credentials = service_account.Credentials.from_service_account_file(caminho_chave)
     scoped = credentials.with_scopes(["https://www.googleapis.com/auth/earthengine"])
     ee.Initialize(scoped)
-    print("Earth Engine autenticado com sucesso")
-def buscar_ndvi(lat, lon, data_inicio, data_fim, intervalo_dias=15,buffer_metros=50):
-    ponto = ee.Geometry.Point([lon,lat]).buffer(buffer_metros)
+    print("  [NDVI] Earth Engine autenticado")
+
+def _executar_ndvi(lat, lon, data_inicio, data_fim, intervalo_dias, buffer_metros):
+    ponto = ee.Geometry.Point([lon, lat]).buffer(buffer_metros)
     colecao = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
     datas_ndvi = []
     valores_ndvi = []
@@ -19,17 +22,17 @@ def buscar_ndvi(lat, lon, data_inicio, data_fim, intervalo_dias=15,buffer_metros
         if data_fim_intervalo > data_fim:
             data_fim_intervalo = data_fim
         intervalo = colecao \
-        .filterBounds(ponto)\
-        .filterDate(data_atual.strftime("%Y-%m-%d"), data_fim_intervalo.strftime("%Y-%m-%d")) \
-        .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
+            .filterBounds(ponto) \
+            .filterDate(data_atual.strftime("%Y-%m-%d"), data_fim_intervalo.strftime("%Y-%m-%d")) \
+            .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
         n_imagens = intervalo.size().getInfo()
         total_imagens += n_imagens
         if n_imagens == 0:
             data_atual = data_fim_intervalo
             continue
         composite = intervalo.median().clip(ponto)
-        ndvi = composite.normalizedDifference(['B8','B4']).rename('NDVI')
-        estatisticas =ndvi.reduceRegion(
+        ndvi = composite.normalizedDifference(['B8', 'B4']).rename('NDVI')
+        estatisticas = ndvi.reduceRegion(
             reducer=ee.Reducer.mean(),
             geometry=ponto,
             scale=10,
@@ -38,20 +41,29 @@ def buscar_ndvi(lat, lon, data_inicio, data_fim, intervalo_dias=15,buffer_metros
         ndvi_valor = estatisticas.getInfo().get('NDVI', None)
         if ndvi_valor is not None:
             datas_ndvi.append(data_fim_intervalo.strftime("%Y-%m-%d"))
-            valores_ndvi.append(round(float(ndvi_valor),3))
+            valores_ndvi.append(round(float(ndvi_valor), 3))
         data_atual = data_fim_intervalo
     if not valores_ndvi:
-        print("Nenhum dado NDVI encontrado para o periodo.")
         return None
-    return  {
+    return {
         "datas": datas_ndvi,
         "ndvi": valores_ndvi,
-        "ndvi_medio_geral": round(sum(valores_ndvi)/ len(valores_ndvi), 3),
-        "ndvi_max": round(max(valores_ndvi),3),
-        "ndvi_min": round(min(valores_ndvi),3),
+        "ndvi_medio_geral": round(sum(valores_ndvi) / len(valores_ndvi), 3),
+        "ndvi_max": round(max(valores_ndvi), 3),
+        "ndvi_min": round(min(valores_ndvi), 3),
         "total_imagens_usadas": total_imagens,
-        "fonte": "Sentinel-2 SR Harmonized" 
+        "fonte": "Sentinel-2 SR Harmonized"
     }
+
+def buscar_ndvi(lat, lon, data_inicio, data_fim, intervalo_dias=15, buffer_metros=50, timeout_segundos=90):
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(_executar_ndvi, lat, lon, data_inicio, data_fim, intervalo_dias, buffer_metros)
+        try:
+            resultado = future.result(timeout=timeout_segundos)
+            return resultado
+        except TimeoutError:
+            print("  [NDVI] Timeout de %ds excedido — continuando sem NDVI" % timeout_segundos)
+            return None
 def ndvi_por_fase(dados_ndvi, data_plantio, fases):
     if not dados_ndvi:
         return {}

@@ -65,28 +65,35 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao, prod_ant=None,
     except Exception as e:
         resultado["erros"].append(f"Erro ao determinar fase: {e}")
         fase_dados = {}
-    #NDVI
+    # NDVI
     ndvi_max = None
     if usar_ndvi and GEE_DISPONIVEL:
+        print("  [NDVI] Autenticando GEE...", end="", flush=True)
         try:
             import os
             caminho_chave = os.environ.get("GEE_KEY_PATH")
             if not caminho_chave:
                 raise ValueError("Variavel GEE_KEY_PATH nao definida")
             autenticar_gee(caminho_chave)
+            print(" OK")
+            print("  [NDVI] Buscando imagens Sentinel-2 (ate 90s)...", end="", flush=True)
             dados_ndvi = buscar_ndvi(
-                lat, lon, data_plantio_dt, datetime.now(), intervalo_dias=15
+                lat, lon, data_plantio_dt, datetime.now(), intervalo_dias=15, timeout_segundos=90
             )
             if dados_ndvi and "ndvi" in dados_ndvi and dados_ndvi["ndvi"]:
+                print(" OK — %d composite(s)" % len(dados_ndvi["ndvi"]))
                 ndvi_max = max(dados_ndvi["ndvi"])
                 resultado["ndvi"] = {
                     "total_imagens": len(dados_ndvi["ndvi"]),
                     "ndvi_max": round(ndvi_max, 3),
                     "ndvi_media": round(sum(dados_ndvi["ndvi"]) / len(dados_ndvi["ndvi"]), 3),
                     "ndvi_min": round(min(dados_ndvi["ndvi"]), 3),
-                    "datas" : dados_ndvi.get("datas", [])
+                    "datas": dados_ndvi.get("datas", [])
                 }
+            else:
+                print(" sem dados no periodo")
         except Exception as e:
+            print(" erro")
             resultado["erros"].append(f"NDVI indisponivel: {e}")
     elif usar_ndvi and not GEE_DISPONIVEL:
         resultado["erros"].append("Modulo NDVI nao instalado (earthengine-api)")
@@ -171,7 +178,7 @@ def exibir_relatorio(resultado):
         n = resultado["ndvi"]
         print(f"\n+--- NDVI (Sentinel-2) ---+")
         print(f"  NDVI max: {n['ndvi_max']:.3f}")
-        print(f"  NDVI medio: {n['ndvi_medio']:.3f}")
+        print(f"  NDVI medio: {n['ndvi_media']:.3f}")
         print(f"  Imagens: {n['total_imagens']} composite(s)")
     if resultado.get("observacao"):
         o = resultado["observacao"]
