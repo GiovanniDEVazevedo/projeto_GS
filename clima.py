@@ -37,7 +37,7 @@ def _tentar_archive_api(lat, lon,inicio,fim):
         resposta = requests.get(url, params=params, timeout=15)
         resposta.raise_for_status()
         dados = resposta.json()
-        return _extrair_dados(dados)
+        return _extrair_dados(dados, "Open-Meteo Archive")
     except requests.exceptions.RequestException:
         return print("Erro na api")
 def _tentar_forecast_api(lat, lon):
@@ -53,7 +53,7 @@ def _tentar_forecast_api(lat, lon):
         resposta = requests.get(url, params=params, timeout=15)
         resposta.raise_for_status()
         dados = resposta.json()
-        return _extrair_dados(dados)
+        return _extrair_dados(dados, "Open-Meteo Forecast")
     except requests.exceptions.RequestException:
         return print("Erro na api")
 def _tentar_nasa_api(lat, lon, inicio, fim):
@@ -83,7 +83,8 @@ def _tentar_nasa_api(lat, lon, inicio, fim):
                 "datas": datas_ordenadas,
                 "temp_max": maximas,
                 "temp_min": minimas,
-                "precip": precipitacao
+                "precip": precipitacao,
+                "fonte": "NASA POWER"
             }
     except requests.exceptions.RequestException:
         return print("Erro na api")
@@ -91,7 +92,7 @@ def _tentar_nasa_api(lat, lon, inicio, fim):
 
 
 
-def _extrair_dados(dados):
+def _extrair_dados(dados, fonte="Open-Meteo"):
     maximas = [v if v is not None else 0 for v in dados["daily"]["temperature_2m_max"]]
     minimas = [v if v is not None else 0 for v in dados["daily"]["temperature_2m_min"]]
     precipitacao = [v if v is not None else 0 for v in dados["daily"]["precipitation_sum"]]
@@ -99,7 +100,8 @@ def _extrair_dados(dados):
         "datas": dados["daily"]["time"],
         "temp_max": maximas,
         "temp_min": minimas,
-        "precip" : precipitacao
+        "precip": precipitacao,
+        "fonte": fonte
     }
 def resumo(dados):
     if not dados or not dados["datas"]:
