@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, jsonify
-from analisar import analisar
+from safrasmart.analisar import analisar
 from datetime import datetime
 import socket
 import webbrowser

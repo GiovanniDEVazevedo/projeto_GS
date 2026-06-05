@@ -1,5 +1,5 @@
 from datetime import datetime
-from analisar import analisar, exibir_relatorio
+from .analisar import analisar, exibir_relatorio
 
 # =============================================================================
 # CENARIOS PARA DEMONSTRACAO AUTOMATIZADA

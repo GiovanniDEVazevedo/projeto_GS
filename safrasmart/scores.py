@@ -1,5 +1,5 @@
-from regras import fase_atual, faixa_com_tolerancia, PESO_SENSIBILIDADE
-from produtividade import potencial_ajustado
+from .regras import fase_atual, faixa_com_tolerancia, PESO_SENSIBILIDADE
+from .produtividade import potencial_ajustado
 
 # =============================================================================
 # PESOS DE CADA DIMENSAO NO SCORE GERAL

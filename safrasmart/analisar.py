@@ -1,17 +1,17 @@
 import sys
 from datetime import datetime, date
-from modelos import (
+from .modelos import (
     tipo_cultura, data_plantio, tipo_irrigacao, tipo_solo, prod_anterior, obs_user
 )
-from clima import buscar_dados_meteo
-from indices import (
+from .clima import buscar_dados_meteo
+from .indices import (
     resumo_climatico, dias_consecutivos_secos, dias_estresse_termico, risco_geada
 )
-from observacao import analisar_obs
-from regras import fase_atual
-from produtividade import potencial_ajustado
-from scores import score_clima, score_geral, score_historico, score_risco, score_solo
-from recomendador import recomendar
+from .observacao import analisar_obs
+from .regras import fase_atual
+from .produtividade import potencial_ajustado
+from .scores import score_clima, score_geral, score_historico, score_risco, score_solo
+from .recomendador import recomendar
 
 # =============================================================================
 # CATEGORIAS POSITIVAS QUE DEVEM SER FILTRADAS ANTES DE PASSAR AO RECOMENDADOR
@@ -23,7 +23,7 @@ from recomendador import recomendar
 CAT_POSITIVAS = ("clima_positivo", "solo_positivo", "sentimento_positivo")
 
 try:
-    from ndvi import autenticar_gee, buscar_ndvi
+    from .ndvi import autenticar_gee, buscar_ndvi
     GEE_DISPONIVEL = True
 except ImportError:
     GEE_DISPONIVEL = False
