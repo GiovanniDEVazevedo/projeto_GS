@@ -191,30 +191,39 @@ def score_historico(prod_anterior, lat, lon, cultura, tipo_solo, irrigacao, ndvi
     }
 
 
-def score_risco(analise_obs, resumo_indices):
+def score_risco(analise_obs, resumo_indices, temp_media=None, temp_ideal=None):
     """
     CALCULA o score de risco (0-10) com base em observacoes e indices climaticos.
     
     PARAMETROS:
         analise_obs (dict): saida de observacao.py:analisar_obs().
         resumo_indices (dict): indices climaticos (indices.py:resumo_climatico).
+        temp_media (float, opcional): temperatura media do periodo.
+        temp_ideal (tuple, opcional): faixa ideal de temperatura (min, max).
     
     RETORNA: dict com "valor" (0-10), "confianca", "detalhes".
     
     LOGICA:
     - Comeca em 10 e subtrai penalidades.
+    - Se nao ha observacao do agricultor: penalidade fixa de -3 (incerteza).
     - Alertas da observacao: alta=-1.5, media=-1.0, baixa=-0.5.
-    - Dias secos >10: -0.2/dia extra (max -2).
-    - Risco de geada >5%: -geada%/10 (max -1.5).
-    - Confianca: "alta" se o agricultor forneceu observacoes, "baixa" se nao.
+    - Dias secos >5: -0.2/dia extra (max -2).
+    - Risco de geada >2%: -geada%/10 (max -1.5).
+    - Temperatura fora da faixa ideal: -1 por grau de desvio (max -2).
+    - Confianca: "alta" se agricultor deu observacoes, "media" se so indices, "baixa" se nada.
     
     MOTIVO:
-    O score de risco reflete ameacas identificadas tanto pelo agricultor
-    (observacoes) quanto pelos dados climaticos (indices). Quanto mais
-    alertas e maior a severidade, menor o score.
+    Antes o score ficava 10/10 quando nao havia observacoes (comum no formulario web),
+    enganando o usuario. Agora aplica penalidade por falta de informacao e usa
+    limiares climaticos mais sensiveis para capturar riscos moderados.
     """
     penalidade = 0.0
 
+    # Penalidade por falta de observacao do agricultor
+    if not analise_obs:
+        penalidade += 3.0  # incerteza de nao saber o que ocorre em campo
+
+    # Alertas das observacoes do agricultor
     if analise_obs and analise_obs.get("alertas"):
         for alerta in analise_obs["alertas"]:
             sev = alerta.get("severidade", "baixa")
@@ -225,17 +234,33 @@ def score_risco(analise_obs, resumo_indices):
             else:
                 penalidade += 0.5
 
+    # Dias secos consecutivos (limiar reduzido de >10 para >5)
     if resumo_indices:
         dias_secos = resumo_indices.get("dias_consecutivos_secos", 0)
-        if dias_secos and dias_secos > 10:
-            penalidade += min((dias_secos - 10) * 0.2, 2.0)
+        if dias_secos and dias_secos > 5:
+            penalidade += min((dias_secos - 5) * 0.2, 2.0)
 
+    # Risco de geada (limiar reduzido de >5% para >2%)
     geada_pct = resumo_indices.get("risco_geada_pct", 0)
-    if geada_pct and geada_pct > 5:
+    if geada_pct and geada_pct > 2:
         penalidade += min(geada_pct / 10, 1.5)
 
+    # Penalidade por temperatura fora da faixa ideal
+    if temp_media is not None and temp_ideal:
+        t_min, t_max = temp_ideal
+        if temp_media < t_min:
+            penalidade += min((t_min - temp_media) * 1.0, 2.0)
+        elif temp_media > t_max:
+            penalidade += min((temp_media - t_max) * 1.0, 2.0)
+
     valor = round(max(0, 10 - penalidade), 1)
-    confianca = "alta" if analise_obs else "baixa"
+
+    if analise_obs:
+        confianca = "alta"
+    elif resumo_indices:
+        confianca = "media"
+    else:
+        confianca = "baixa"
 
     return {
         "valor": valor,

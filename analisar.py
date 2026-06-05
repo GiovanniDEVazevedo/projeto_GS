@@ -180,8 +180,13 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
         sc_historico = score_historico(
             prod_ant, lat, lon, cultura, solo, irrigacao, ndvi_max
         )
+        temp_media = resultado.get("clima", {}).get("temp_media") if resultado.get("clima") else None
+        temp_ideal = resultado.get("fase", {}).get("temp_ideal") if resultado.get("fase") else None
         sc_risco = score_risco(
-            resultado.get("observacao"), resultado.get("indices") or {}
+            resultado.get("observacao"),
+            resultado.get("indices") or {},
+            temp_media=temp_media,
+            temp_ideal=temp_ideal
         )
         todos_scores = {
             "clima": sc_clima,
