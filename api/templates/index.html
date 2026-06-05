@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SafraSmart</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f4f0; color: #1b1b1b; padding: 16px; padding-bottom: 40px;
+        }
+        .header {
+            background: linear-gradient(135deg, #1b5e20, #2e7d32);
+            color: white; padding: 20px 16px; border-radius: 12px; margin-bottom: 16px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .header h1 { font-size: 22px; }
+        .header .sub { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+        .badge {
+            font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: 600;
+        }
+        .badge.online { background: #a5d6a7; color: #1b5e20; }
+        .badge.offline { background: #ffcdd2; color: #b71c1c; }
+        .card {
+            background: white; border-radius: 12px; padding: 16px; margin-bottom: 12px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+        .card h2 {
+            font-size: 14px; color: #2e7d32; margin-bottom: 12px;
+            text-transform: uppercase; letter-spacing: 1px;
+        }
+        label { display: block; font-size: 13px; color: #555; margin: 8px 0 4px; }
+        input, select, textarea {
+            width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px;
+            font-size: 15px; outline: none; transition: border 0.2s;
+        }
+        input:focus, select:focus, textarea:focus { border-color: #2e7d32; }
+        textarea { resize: vertical; min-height: 60px; font-family: inherit; }
+        .gps-btn {
+            background: #e8f5e9; color: #2e7d32; border: 2px dashed #a5d6a7;
+            padding: 12px; border-radius: 8px; text-align: center; font-size: 15px;
+            cursor: pointer; width: 100%; margin-bottom: 8px; transition: 0.2s;
+        }
+        .gps-btn:hover { background: #c8e6c9; }
+        .gps-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .coord-row { display: flex; gap: 8px; }
+        .coord-row input { width: 50%; }
+        .btn-analisar {
+            background: linear-gradient(135deg, #2e7d32, #43a047);
+            color: white; border: none; padding: 14px; border-radius: 8px;
+            font-size: 17px; font-weight: 600; width: 100%; cursor: pointer;
+            transition: transform 0.1s; margin-top: 4px;
+        }
+        .btn-analisar:active { transform: scale(0.98); }
+        .btn-analisar:disabled { opacity: 0.5; cursor: not-allowed; }
+        .resultado { display: none; }
+        .score-geral {
+            text-align: center; padding: 20px;
+            border-radius: 12px; margin-bottom: 12px;
+        }
+        .score-geral.recomendado { background: linear-gradient(135deg, #e8f5e9, #c8e6c9); }
+        .score-geral.atencao { background: linear-gradient(135deg, #fff8e1, #ffecb3); }
+        .score-geral.nao { background: linear-gradient(135deg, #ffebee, #ffcdd2); }
+        .score-geral .numero { font-size: 42px; font-weight: 700; }
+        .score-geral .rotulo { font-size: 18px; font-weight: 600; margin-top: 4px; }
+        .score-geral .prob { font-size: 13px; opacity: 0.7; margin-top: 8px; }
+        .barra-score { margin: 6px 0; }
+        .barra-score .nome { font-size: 13px; display: flex; justify-content: space-between; }
+        .barra-score .barra-bg {
+            height: 8px; background: #e0e0e0; border-radius: 4px; margin-top: 2px; overflow: hidden;
+        }
+        .barra-score .barra-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+        .alerta-item {
+            padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px;
+            display: flex; align-items: flex-start; gap: 8px;
+        }
+        .alerta-item:last-child { border: none; }
+        .sev-alta { color: #c62828; }
+        .sev-media { color: #f57f17; }
+        .sev-baixa { color: #558b2f; }
+        .acao-item { padding: 6px 0; font-size: 14px; display: flex; gap: 8px; }
+        .acao-item .num { color: #2e7d32; font-weight: 600; min-width: 24px; }
+        .loading {
+            text-align: center; padding: 20px; color: #666; display: none;
+        }
+        .loading .spinner {
+            display: inline-block; width: 24px; height: 24px; border: 3px solid #e0e0e0;
+            border-top-color: #2e7d32; border-radius: 50%; animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .erro-msg { color: #c62828; padding: 12px; background: #ffebee; border-radius: 8px; margin-top: 8px; }
+        .fase-info { font-size: 13px; color: #555; padding: 8px 0; }
+        .ndvi-info { font-size: 13px; color: #555; margin-top: 8px; padding: 8px; background: #f5f5f5; border-radius: 6px; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div>
+        <h1>SafraSmart</h1>
+        <div class="sub">Plataforma de Decisoes Agricolas</div>
+    </div>
+    <div class="badge online" id="statusBadge">Online</div>
+</div>
+
+<div class="card">
+    <h2>Localizacao</h2>
+    <button class="gps-btn" id="gpsBtn" onclick="capturarGPS()">Capturar Localizacao GPS</button>
+    <button class="gps-btn" id="ipBtn" onclick="buscarLocalizacaoIP()" style="margin-top:6px;font-size:13px;padding:8px;">Usar localizacao aproximada (IP)</button>
+    <div class="coord-row">
+        <input type="number" id="lat" step="any" placeholder="Latitude" value="-24.95">
+        <input type="number" id="lon" step="any" placeholder="Longitude" value="-53.46">
+    </div>
+    <div style="display:flex;gap:8px;margin-top:6px;">
+        <input type="text" id="cidadeInput" placeholder="Digite cidade e estado (ex: Sorriso/MT)" style="flex:1;">
+        <button class="gps-btn" id="geoBtn" onclick="buscarCidade()" style="padding:8px;font-size:13px;margin:0;width:auto;white-space:nowrap;">Buscar</button>
+    </div>
+    <div id="localInfo" class="fase-info"></div>
+</div>
+
+<div class="card">
+    <h2>Dados da Lavoura</h2>
+    <label>Cultura</label>
+    <select id="cultura">
+        <option value="soja">Soja</option>
+        <option value="milho">Milho</option>
+    </select>
+    <label>Data de Plantio</label>
+    <input type="date" id="dataPlantio">
+    <label>Tipo de Solo</label>
+    <select id="solo">
+        <option value="argiloso">Argiloso</option>
+        <option value="misto">Misto</option>
+        <option value="arenoso">Arenoso</option>
+    </select>
+    <label>Irrigacao</label>
+    <select id="irrigacao">
+        <option value="sequeiro">Sequeiro (sem irrigacao)</option>
+        <option value="aspersao">Aspersao</option>
+        <option value="gotejo">Gotejo</option>
+    </select>
+    <label>Produtividade Anterior (sc/ha)</label>
+    <input type="number" id="prodAnt" step="any" placeholder="Ex: 80">
+    <label>Observacoes</label>
+    <textarea id="observacoes" placeholder="Descreva as condicoes da lavoura..."></textarea>
+</div>
+
+<button class="btn-analisar" id="btnAnalisar" onclick="enviarAnalise()">ANALISAR</button>
+
+<div class="loading" id="loading">
+    <div class="spinner"></div>
+    <div style="margin-top: 8px;">Analisando dados climaticos...</div>
+</div>
+
+<div class="resultado" id="resultado">
+    <div class="card score-geral" id="scoreGeral">
+        <div style="font-size:13px;opacity:0.6;">SCORE GERAL</div>
+        <div class="numero" id="scoreValor">0.0</div>
+        <div class="rotulo" id="scoreClassif">---</div>
+        <div class="prob" id="scoreProb"></div>
+    </div>
+
+    <div class="card">
+        <h2>Scores por Dimensao</h2>
+        <div id="scoresParciais"></div>
+    </div>
+
+    <div class="card" id="alertasCard" style="display:none;">
+        <h2>Alertas</h2>
+        <div id="alertasLista"></div>
+    </div>
+
+    <div class="card" id="acoesCard" style="display:none;">
+        <h2>Acoes Recomendadas</h2>
+        <div id="acoesLista"></div>
+    </div>
+
+    <div class="card" id="faseCard">
+        <h2>Fase Fenologica</h2>
+        <div id="faseInfo" class="fase-info"></div>
+    </div>
+
+    <div class="card" id="ndviCard" style="display:none;">
+        <h2>NDVI Sentinel-2</h2>
+        <div id="ndviInfo" class="ndvi-info"></div>
+    </div>
+
+    <div class="card" id="errosCard" style="display:none;">
+        <h2>Avisos</h2>
+        <div id="errosLista"></div>
+    </div>
+</div>
+
+<script>
+let localSalva = JSON.parse(localStorage.getItem("safra_localizacao"));
+
+function capturarGPS() {
+    const btn = document.getElementById("gpsBtn");
+    btn.disabled = true; btn.textContent = "Obtendo localizacao...";
+    if (!navigator.geolocation) {
+        btn.textContent = "GPS nao disponivel";
+        btn.disabled = false;
+        buscarLocalizacaoIP();
+        return;
+    }
+    navigator.geolocation.getCurrentPosition(
+        pos => {
+            definirLocalizacao(pos.coords.latitude, pos.coords.longitude);
+            btn.textContent = "Localizacao capturada";
+            setTimeout(() => {
+                btn.textContent = "Capturar Localizacao GPS";
+                btn.disabled = false;
+                atualizarStatus();
+            }, 2000);
+        },
+        err => {
+            btn.textContent = "GPS falhou: " + err.message;
+            btn.disabled = false;
+            // Fallback automatico para IP (funciona no iPhone/iOS Safari via HTTP)
+            document.getElementById("ipBtn").click();
+        },
+        { enableHighAccuracy: false, timeout: 8000 }
+    );
+}
+
+function buscarLocalizacaoIP() {
+    const btn = document.getElementById("ipBtn");
+    btn.disabled = true; btn.textContent = "Buscando localizacao via IP...";
+    fetch("https://ip-api.com/json/?fields=status,lat,lon,city,regionName,country")
+        .then(r => r.json())
+        .then(d => {
+            if (d.status === "success") {
+                definirLocalizacao(d.lat, d.lon);
+                document.getElementById("localInfo").innerHTML =
+                    "Localizacao aproximada: " + d.city + ", " + d.regionName +
+                    " <em style='opacity:0.6;font-size:11px;'>(via IP)</em>";
+                btn.textContent = "Localizacao via IP";
+            } else {
+                document.getElementById("localInfo").textContent = "Nao foi possivel obter localizacao.";
+                btn.textContent = "Erro ao buscar IP";
+            }
+        })
+        .catch(() => {
+            document.getElementById("localInfo").textContent = "Falha na consulta de IP.";
+            btn.textContent = "Erro de rede";
+        })
+        .finally(() => {
+            setTimeout(() => {
+                btn.textContent = "Usar localizacao aproximada (IP)";
+                btn.disabled = false;
+            }, 3000);
+        });
+}
+
+function buscarCidade() {
+    const input = document.getElementById("cidadeInput").value.trim();
+    if (!input) return;
+    const btn = document.getElementById("geoBtn");
+    btn.disabled = true; btn.textContent = "Buscando...";
+    fetch("https://nominatim.openstreetmap.org/search?format=json&q=" +
+        encodeURIComponent(input) + "&limit=1&accept-language=pt")
+        .then(r => r.json())
+        .then(d => {
+            if (d && d.length > 0) {
+                definirLocalizacao(parseFloat(d[0].lat), parseFloat(d[0].lon));
+                document.getElementById("localInfo").textContent =
+                    d[0].display_name.split(",")[0] + ", " + (d[0].address?.state || "");
+            } else {
+                document.getElementById("localInfo").textContent = "Cidade nao encontrada.";
+            }
+        })
+        .catch(() => {
+            document.getElementById("localInfo").textContent = "Erro na busca.";
+        })
+        .finally(() => {
+            btn.textContent = "Buscar";
+            btn.disabled = false;
+        });
+}
+
+function definirLocalizacao(lat, lon) {
+    document.getElementById("lat").value = lat.toFixed ? lat.toFixed(4) : parseFloat(lat).toFixed(4);
+    document.getElementById("lon").value = lon.toFixed ? lon.toFixed(4) : parseFloat(lon).toFixed(4);
+    localStorage.setItem("safra_localizacao", JSON.stringify({
+        lat: parseFloat(document.getElementById("lat").value),
+        lon: parseFloat(document.getElementById("lon").value)
+    }));
+    reverseGeocode(lat, lon);
+}
+
+function reverseGeocode(lat, lon) {
+    fetch("https://nominatim.openstreetmap.org/reverse?format=json&lat=" +
+        lat + "&lon=" + lon + "&accept-language=pt")
+        .then(r => r.json())
+        .then(d => {
+            const cidade = d.address?.city || d.address?.town || d.address?.municipality || "";
+            const estado = d.address?.state || "";
+            if (cidade) document.getElementById("localInfo").textContent = cidade + ", " + estado;
+        })
+        .catch(() => {});
+}
+
+function atualizarStatus() {
+    const badge = document.getElementById("statusBadge");
+    if (navigator.onLine) {
+        badge.textContent = "Online"; badge.className = "badge online";
+        sincronizarPendentes();
+    } else {
+        badge.textContent = "Offline"; badge.className = "badge offline";
+    }
+}
+window.addEventListener("online", atualizarStatus);
+window.addEventListener("offline", atualizarStatus);
+atualizarStatus();
+
+document.getElementById("dataPlantio").value = "2025-10-20";
+
+async function enviarAnalise() {
+    const dados = {
+        lat: parseFloat(document.getElementById("lat").value),
+        lon: parseFloat(document.getElementById("lon").value),
+        cultura: document.getElementById("cultura").value,
+        data_plantio: document.getElementById("dataPlantio").value,
+        solo: document.getElementById("solo").value,
+        irrigacao: document.getElementById("irrigacao").value,
+        prod_ant: parseFloat(document.getElementById("prodAnt").value) || null,
+        observacoes: document.getElementById("observacoes").value
+    };
+
+    document.getElementById("btnAnalisar").disabled = true;
+    document.getElementById("loading").style.display = "block";
+    document.getElementById("resultado").style.display = "none";
+
+    if (!navigator.onLine) {
+        let fila = JSON.parse(localStorage.getItem("fila_pendente") || "[]");
+        fila.push({ id: Date.now(), ...dados });
+        localStorage.setItem("fila_pendente", JSON.stringify(fila));
+        document.getElementById("loading").style.display = "none";
+        document.getElementById("btnAnalisar").disabled = false;
+        document.getElementById("statusBadge").textContent = "Salvo localmente";
+        return;
+    }
+
+    try {
+        const resp = await fetch("/api/analisar", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(dados)
+        });
+        const resultado = await resp.json();
+        if (resultado.erro) throw new Error(resultado.erro);
+        exibirResultado(resultado);
+    } catch (err) {
+        document.getElementById("loading").style.display = "none";
+        document.getElementById("resultado").style.display = "block";
+        document.getElementById("resultado").innerHTML +=
+            '<div class="card erro-msg">Erro: ' + err.message + '</div>';
+    }
+    document.getElementById("btnAnalisar").disabled = false;
+}
+
+function exibirResultado(r) {
+    document.getElementById("loading").style.display = "none";
+    document.getElementById("resultado").style.display = "block";
+    document.getElementById("resultado").scrollIntoView({ behavior: "smooth" });
+
+    const s = r.scores || {};
+    const rec = r.recomendacao || {};
+    const rp = rec.recomendacao_principal || {};
+
+    const sg = document.getElementById("scoreGeral");
+    sg.className = "card score-geral";
+    const classif = (s.classificacao || "").toLowerCase();
+    if (classif.includes("recomend")) sg.classList.add("recomendado");
+    else if (classif.includes("atenc")) sg.classList.add("atencao");
+    else sg.classList.add("nao");
+    document.getElementById("scoreValor").textContent = (s.valor || 0).toFixed(1) + "/10";
+    document.getElementById("scoreClassif").textContent = s.classificacao || "---";
+    document.getElementById("scoreProb").textContent = rec.probabilidade || "";
+
+    const sp = document.getElementById("scoresParciais");
+    sp.innerHTML = "";
+    const cores = { clima: "#1565c0", solo: "#2e7d32", historico: "#f57f17", risco: "#c62828" };
+    const rotulos = { clima: "Clima", solo: "Solo", historico: "Historico", risco: "Risco" };
+    for (const [nome, ps] of Object.entries(s.parciais || {})) {
+        const pct = (ps.valor / 10) * 100;
+        sp.innerHTML += '<div class="barra-score">' +
+            '<div class="nome"><span>' + (rotulos[nome] || nome) + '</span>' +
+            '<span>' + ps.valor.toFixed(1) + ' (' + ps.confianca + ')</span></div>' +
+            '<div class="barra-bg"><div class="barra-fill" style="width:' + pct + '%;background:' +
+            (cores[nome] || "#2e7d32") + '"></div></div></div>';
+    }
+
+    const f = r.fase || {};
+    document.getElementById("faseInfo").textContent = f.nome_amigavel ?
+        f.nome_amigavel + " (" + f.dias_apos_plantio + " dias)" : "---";
+
+    const ndvi = r.ndvi;
+    if (ndvi) {
+        document.getElementById("ndviCard").style.display = "block";
+        document.getElementById("ndviInfo").innerHTML =
+            "<div>Maximo: <strong>" + ndvi.ndvi_max.toFixed(3) + "</strong></div>" +
+            "<div>Medio: <strong>" + ndvi.ndvi_media.toFixed(3) + "</strong></div>" +
+            "<div>Imagens: " + ndvi.total_imagens + " composite(s)</div>";
+    }
+
+    const alertas = rec.alertas_ativos || [];
+    if (alertas.length > 0) {
+        document.getElementById("alertasCard").style.display = "block";
+        document.getElementById("alertasLista").innerHTML = alertas.map(function(a) {
+            return '<div class="alerta-item">' +
+                '<span class="sev-' + a.severidade + '">!</span>' +
+                '<span>' + a.mensagem + ' <em style="opacity:0.6;font-size:12px;">[' +
+                a.severidade.toUpperCase() + ']</em></span></div>';
+        }).join("");
+    }
+
+    const acoes = rec.acoes_recomendadas || [];
+    if (acoes.length > 0) {
+        document.getElementById("acoesCard").style.display = "block";
+        document.getElementById("acoesLista").innerHTML = acoes.map(function(a, i) {
+            return '<div class="acao-item"><span class="num">' + (i+1) + '.</span> <span>' + a + '</span></div>';
+        }).join("");
+    }
+
+    const erros = r.erros || [];
+    if (erros.length > 0) {
+        document.getElementById("errosCard").style.display = "block";
+        document.getElementById("errosLista").innerHTML = erros.map(function(e) {
+            return '<div class="alerta-item"><span>' + e + '</span></div>';
+        }).join("");
+    }
+}
+
+async function sincronizarPendentes() {
+    const fila = JSON.parse(localStorage.getItem("fila_pendente") || "[]");
+    if (fila.length === 0) return;
+    try {
+        const resp = await fetch("/api/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(fila)
+        });
+        if (resp.ok) {
+            localStorage.removeItem("fila_pendente");
+            document.getElementById("statusBadge").textContent = "Sincronizado!";
+            setTimeout(atualizarStatus, 3000);
+        }
+    } catch (e) {}
+}
+
+if (localSalva) {
+    definirLocalizacao(localSalva.lat, localSalva.lon);
+}
+</script>
+</body>
+</html>

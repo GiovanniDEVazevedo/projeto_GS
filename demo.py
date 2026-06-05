@@ -1,6 +1,24 @@
 from datetime import datetime
 from analisar import analisar, exibir_relatorio
 
+# =============================================================================
+# CENARIOS PARA DEMONSTRACAO AUTOMATIZADA
+# =============================================================================
+# 3 cenarios predefinidos que cobrem diferentes regioes, culturas e condicoes:
+# 1. Sorriso/MT — Soja em alta produtividade (cenario positivo).
+# 2. Cascavel/PR — Milho safrinha com estresse hidrico (cenario medio).
+# 3. Uruguaiana/RS — Soja com excesso de chuvas (cenario negativo).
+#
+# Cada cenario tem:
+#   "titulo": descricao para exibicao.
+#   "lat"/"lon": coordenadas reais da regiao.
+#   "cultura": "soja" ou "milho".
+#   "data_plantio": data simulada de plantio.
+#   "solo"/"irrigacao": condicoes da propriedade.
+#   "prod_ant": produtividade anterior em sc/ha.
+#   "obs": observacao do agricultor (texto livre).
+#   "destaque": explicacao do que o cenario pretende demonstrar.
+# =============================================================================
 CENARIOS = [
     {
         "titulo": "Fazenda em Sorriso/MT — Soja de Alta Produtividade",
@@ -37,7 +55,27 @@ CENARIOS = [
     }
 ]
 
+
 def rodar_demo():
+    """
+    EXECUTA a demonstracao automatizada com 3 cenarios predefinidos.
+    
+    PARAMETROS: nenhum — usa os cenarios definidos na constante CENARIOS.
+    
+    RETORNA: None — executa e exibe tudo no terminal.
+    
+    MOTIVO:
+    Funcao criada para apresentacoes e pitches, demonstrando o SafraSmart
+    sem necessidade de digitar dados manualmente. Cada cenario representa
+    um perfil diferente de agricultor e regiao.
+    
+    FLUXO:
+    1. Para cada cenario, chama analisar() com os dados predefinidos.
+    2. Exibe o relatorio completo via exibir_relatorio().
+    3. Mostra um resumo executivo (score, classificacao, alertas, acoes).
+    4. Pausa entre cenarios para permitir comentarios do apresentador.
+    5. Ao final, exibe uma tabela comparativa dos 3 cenarios.
+    """
     print("=" * 55)
     print("   SAFRASMART — DEMONSTRACAO AUTOMATIZADA")
     print("   Plataforma de Decisoes Agricolas")
@@ -82,6 +120,7 @@ def rodar_demo():
         if i < len(CENARIOS):
             input("\n Pressione Enter para o proximo cenario...")
 
+    # Tabela comparativa final
     print(f"\n{'=' * 55}")
     print(" TABELA COMPARATIVA — RESUMO DOS 3 CENARIOS")
     print(f"{'=' * 55}")
@@ -100,6 +139,6 @@ def rodar_demo():
     print(" Fim da demonstracao SafraSmart")
     print(f"{'=' * 55}")
 
+
 if __name__ == "__main__":
     rodar_demo()
-    

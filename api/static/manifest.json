@@ -1,0 +1,10 @@
+{
+    "name": "SafraSmart",
+    "short_name": "SafraSmart",
+    "description": "Plataforma de Decisoes Agricolas",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#1b5e20",
+    "theme_color": "#2e7d32",
+    "orientation": "portrait"
+}

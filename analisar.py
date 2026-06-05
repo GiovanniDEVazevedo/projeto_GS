@@ -1,23 +1,74 @@
 import sys
-from datetime import datetime,date
-from modelos import(
-    tipo_cultura,data_plantio,tipo_irrigacao,tipo_solo,prod_anterior,obs_user
+from datetime import datetime, date
+from modelos import (
+    tipo_cultura, data_plantio, tipo_irrigacao, tipo_solo, prod_anterior, obs_user
 )
 from clima import buscar_dados_meteo
-from indices import(
-    resumo_climatico,dias_consecutivos_secos,dias_estresse_termico,risco_geada
+from indices import (
+    resumo_climatico, dias_consecutivos_secos, dias_estresse_termico, risco_geada
 )
 from observacao import analisar_obs
 from regras import fase_atual
 from produtividade import potencial_ajustado
-from scores import score_clima,score_geral,score_historico,score_risco,score_solo
+from scores import score_clima, score_geral, score_historico, score_risco, score_solo
 from recomendador import recomendar
+
+# =============================================================================
+# CATEGORIAS POSITIVAS QUE DEVEM SER FILTRADAS ANTES DE PASSAR AO RECOMENDADOR
+# =============================================================================
+# O recomendador so deve receber alertas NEGATIVOS (riscos).
+# Categorias como "clima_positivo" (ex: "chuva boa") sao usadas apenas
+# para calcular o sentimento geral, nao para gerar alertas de acao.
+# =============================================================================
+CAT_POSITIVAS = ("clima_positivo", "solo_positivo", "sentimento_positivo")
+
 try:
-    from ndvi import autenticar_gee,buscar_ndvi
+    from ndvi import autenticar_gee, buscar_ndvi
     GEE_DISPONIVEL = True
 except ImportError:
     GEE_DISPONIVEL = False
-def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao, prod_ant=None, observacoes="", usar_ndvi=True):
+
+
+def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
+             prod_ant=None, observacoes="", usar_ndvi=True):
+    """
+    ORQUESTRADOR PRINCIPAL do pipeline SafraSmart.
+    
+    Executa as 6 etapas sequenciais do pipeline e retorna um dicionario
+    completo com todos os resultados. Cada etapa e independente — se uma
+    falha, as demais continuam e o erro e registrado.
+    
+    PARAMETROS:
+        lat (float): latitude da propriedade (ex: -12.55).
+        lon (float): longitude da propriedade (ex: -55.72).
+        cultura (str): "soja" ou "milho".
+        data_plantio_dt (datetime): data em que o plantio foi realizado.
+        solo (str): tipo de solo ("argiloso", "misto", "arenoso").
+        irrigacao (str): tipo de irrigacao ("sequeiro", "aspersao", "gotejo").
+        prod_ant (float, opcional): produtividade da safra anterior em sc/ha.
+        observacoes (str): texto livre do agricultor sobre a lavoura.
+        usar_ndvi (bool): True para tentar buscar NDVI via GEE.
+    
+    RETORNA: dict completo com todas as chaves:
+        "metadata" (dict): data, coordenadas, cultura, data plantio.
+        "clima" (dict): resumo climatico (temp_media, precip_total, fonte).
+        "indices" (dict): indices climaticos detalhados.
+        "fase" (dict): fase fenologica atual.
+        "ndvi" (dict): dados NDVI (se disponivel e ativado).
+        "observacao" (dict): analise da observacao do agricultor.
+        "scores" (dict): score geral + parciais.
+        "recomendacao" (dict): recomendacao final + alertas + acoes.
+        "erros" (list[str]): lista de erros ocorridos (vazia se tudo ok).
+        "status" (str): "sucesso" (sem erros) ou "parcial" (com erros).
+    
+    ETAPAS DO PIPELINE:
+    1. CLIMA: busca dados meteorologicos e calcula indices.
+    2. FENOLOGIA: identifica fase da cultura baseada em dias desde plantio.
+    3. NDVI: busca imagens Sentinel-2 via GEE (opcional, com timeout).
+    4. OBSERVACAO: processa texto livre do agricultor.
+    5. SCORES: calcula 4 dimensoes + score geral ponderado.
+    6. RECOMENDACAO: gera recomendacao final probabilistico.
+    """
     resultado = {
         "metadata": {
             "data_analise": date.today().isoformat(),
@@ -31,26 +82,33 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao, prod_ant=None,
         "recomendacao": None,
         "erros": []
     }
-    #Clima
+
+    # === ETAPA 1: CLIMA ===
+    # Busca dados climaticos das APIs em cascata e calcula indices
     try:
         dados_clima = buscar_dados_meteo(lat, lon)
         if not dados_clima or not dados_clima.get("datas"):
-            resultado["erros"].append("API climatico nao retornou dados")
-        else: 
-            resultado["clima"]={
+            resultado["erros"].append("API climatica nao retornou dados")
+        else:
+            resultado["clima"] = {
                 "total_dias": len(dados_clima["datas"]),
-                "temp_media": round(sum((dados_clima["temp_max"][i] + dados_clima["temp_min"][i]) / 2 for i in range(len(dados_clima["datas"])))/ len(dados_clima["datas"]), 1),
-                "precip_total": round(sum(dados_clima["precip"]),1),
+                "temp_media": round(sum(
+                    (dados_clima["temp_max"][i] + dados_clima["temp_min"][i]) / 2
+                    for i in range(len(dados_clima["datas"]))
+                ) / len(dados_clima["datas"]), 1),
+                "precip_total": round(sum(dados_clima["precip"]), 1),
                 "fonte": dados_clima.get("fonte", "desconhecida")
             }
             indices = resumo_climatico(dados_clima)
             indices["dias_estresse_termico"] = dias_estresse_termico(dados_clima)
             indices["risco_geada_pct"] = risco_geada(dados_clima)
             indices["dias_consecutivos_secos"] = dias_consecutivos_secos(dados_clima)
-            resultado["indices"]= indices
-    except Exception as e: 
-        resultado["erros"].append(f"Erro no modolo clima: {e}")
-    # fenologia
+            resultado["indices"] = indices
+    except Exception as e:
+        resultado["erros"].append(f"Erro no modulo clima: {e}")
+
+    # === ETAPA 2: FENOLOGIA ===
+    # Calcula dias desde plantio e identifica fase fenologica
     try:
         dias_plantio = (datetime.now() - data_plantio_dt).days
         fase_nome, fase_dados = fase_atual(cultura, dias_plantio)
@@ -65,7 +123,9 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao, prod_ant=None,
     except Exception as e:
         resultado["erros"].append(f"Erro ao determinar fase: {e}")
         fase_dados = {}
-    # NDVI
+
+    # === ETAPA 3: NDVI (opcional) ===
+    # Busca imagens Sentinel-2 com timeout de 90s
     ndvi_max = None
     if usar_ndvi and GEE_DISPONIVEL:
         print("  [NDVI] Autenticando GEE...", end="", flush=True)
@@ -78,7 +138,8 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao, prod_ant=None,
             print(" OK")
             print("  [NDVI] Buscando imagens Sentinel-2 (ate 90s)...", end="", flush=True)
             dados_ndvi = buscar_ndvi(
-                lat, lon, data_plantio_dt, datetime.now(), intervalo_dias=15, timeout_segundos=90
+                lat, lon, data_plantio_dt, datetime.now(),
+                intervalo_dias=15, timeout_segundos=90
             )
             if dados_ndvi and "ndvi" in dados_ndvi and dados_ndvi["ndvi"]:
                 print(" OK — %d composite(s)" % len(dados_ndvi["ndvi"]))
@@ -97,10 +158,18 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao, prod_ant=None,
             resultado["erros"].append(f"NDVI indisponivel: {e}")
     elif usar_ndvi and not GEE_DISPONIVEL:
         resultado["erros"].append("Modulo NDVI nao instalado (earthengine-api)")
+
+    # === ETAPA 4: OBSERVACAO ===
+    # Processa texto livre do agricultor
     try:
-        resultado["observacao"] = analisar_obs(observacoes) if observacoes.strip() else None
+        resultado["observacao"] = (
+            analisar_obs(observacoes) if observacoes.strip() else None
+        )
     except Exception as e:
-        resultado["erros"].append(f"Erro na analise de observacao")
+        resultado["erros"].append("Erro na analise de observacao")
+
+    # === ETAPA 5: SCORES ===
+    # Calcula 4 dimensoes + score geral ponderado
     try:
         sc_clima = score_clima(
             dados_clima if resultado["clima"] else None,
@@ -109,7 +178,7 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao, prod_ant=None,
         )
         sc_solo = score_solo(solo, irrigacao)
         sc_historico = score_historico(
-            prod_ant, lat,lon, cultura, solo , irrigacao,ndvi_max
+            prod_ant, lat, lon, cultura, solo, irrigacao, ndvi_max
         )
         sc_risco = score_risco(
             resultado.get("observacao"), resultado.get("indices") or {}
@@ -125,12 +194,14 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao, prod_ant=None,
             nome: {"valor": sc["valor"], "confianca": sc["confianca"]}
             for nome, sc in todos_scores.items() if sc
         }
-    except Exception as e: 
+    except Exception as e:
         resultado["erros"].append(f"Erro no calculo de scores: {e}")
+
+    # === ETAPA 6: RECOMENDACAO ===
+    # Filtra alertas positivos e gera recomendacao final
     try:
         alertas_obs = []
         if resultado.get("observacao") and resultado["observacao"].get("alertas"):
-            CAT_POSITIVAS = ("clima_positivo", "solo_positivo", "sentimento_positivo")
             alertas_obs = [
                 a for a in resultado["observacao"]["alertas"]
                 if a.get("categoria") not in CAT_POSITIVAS
@@ -143,17 +214,35 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao, prod_ant=None,
         )
     except Exception as e:
         resultado["erros"].append(f"Erro ao gerar recomendacao: {e}")
+
     resultado["status"] = "sucesso" if not resultado["erros"] else "parcial"
     return resultado
+
+
 def exibir_relatorio(resultado):
+    """
+    EXIBE o relatorio completo formatado no terminal.
+    
+    PARAMETROS:
+        resultado (dict): saida completa da funcao analisar().
+    
+    RETORNA: None — apenas imprime no terminal.
+    
+    MOTIVO:
+    Formata o dicionario de resultado em seccoes visuais com ASCII,
+    facilitando a leitura pelo agricultor no terminal. Cada seccao
+    so aparece se o dado correspondente estiver disponivel.
+    """
     print("=" * 55)
     print("              SAFRASMART - RELATORIO COMPLETO")
     print("=" * 55)
+
     meta = resultado["metadata"]
     print(f"\nAnalise: {meta['data_analise']}")
     print(f"Local: {meta['lat']:.2f}, {meta['lon']:.2f}")
     print(f"Cultura: {meta['cultura'].title()}")
     print(f"Plantio: {meta['data_plantio']}")
+
     if resultado.get("fase"):
         f = resultado["fase"]
         print(f"\n+--- FASE FENOLOGICA ---+")
@@ -162,6 +251,7 @@ def exibir_relatorio(resultado):
             print(f"  Temp ideal: {f['temp_ideal'][0]}C a {f['temp_ideal'][1]}C")
         if f["precip_ideal"]:
             print(f"  Precip ideal: {f['precip_ideal'][0]}mm a {f['precip_ideal'][1]}mm/mes")
+
     if resultado.get("clima"):
         c = resultado["clima"]
         print(f"\n+--- CLIMA ---+")
@@ -169,17 +259,20 @@ def exibir_relatorio(resultado):
         print(f"  Precipitacao total: {c['precip_total']}mm")
         print(f"  Periodo: {c['total_dias']} dias")
         print(f"  Fonte: {c['fonte']}")
+
     if resultado.get("indices"):
         i = resultado["indices"]
         print(f"  Dias secos consecutivos: {i.get('dias_consecutivos_secos', 'N/A')}")
         print(f"  Estresse termico: {i.get('dias_estresse_termico', 'N/A')} dias")
         print(f"  Risco de geada: {i.get('risco_geada_pct', 'N/A')}%")
+
     if resultado.get("ndvi"):
         n = resultado["ndvi"]
         print(f"\n+--- NDVI (Sentinel-2) ---+")
         print(f"  NDVI max: {n['ndvi_max']:.3f}")
         print(f"  NDVI medio: {n['ndvi_media']:.3f}")
         print(f"  Imagens: {n['total_imagens']} composite(s)")
+
     if resultado.get("observacao"):
         o = resultado["observacao"]
         print(f"\n+--- OBSERVACAO DO AGRICULTOR ---+")
@@ -189,6 +282,7 @@ def exibir_relatorio(resultado):
             for a in o["alertas"]:
                 print(f"    - {a.get('palavra', a.get('mensagem', ''))} "
                       f"[{a.get('severidade', 'N/A')}]")
+
     if resultado.get("scores"):
         s = resultado["scores"]
         print(f"\n+--- SCORES ---+")
@@ -198,6 +292,7 @@ def exibir_relatorio(resultado):
             for nome, ps in s["parciais"].items():
                 barra = "#" * int(ps["valor"]) + "." * (10 - int(ps["valor"]))
                 print(f"    {nome:10s}: {ps['valor']:.1f}/10 [{barra}] ({ps['confianca']})")
+
     if resultado.get("recomendacao"):
         r = resultado["recomendacao"]
         rp = r["recomendacao_principal"]
@@ -216,6 +311,7 @@ def exibir_relatorio(resultado):
             print(f"\n  Acoes recomendadas:")
             for i, acao in enumerate(r["acoes_recomendadas"], 1):
                 print(f"    {i}. {acao}")
+
     if resultado.get("erros"):
         print(f"\n+--- AVISOS ---+")
         for erro in resultado["erros"]:
@@ -224,7 +320,21 @@ def exibir_relatorio(resultado):
     print("\n" + "=" * 55)
     print("              Fim do relatorio SafraSmart")
     print("=" * 55)
+
+
 def main():
+    """
+    FUNCAO PRINCIPAL para uso interativo via terminal.
+    
+    PARAMETROS: nenhum — coleta todos os dados via modelos.py + input().
+    
+    RETORNA: None — executa a analise completa e exibe o relatorio.
+    
+    MOTIVO:
+    Versao CLI completa para uso direto no terminal sem necessidade
+    de servidor web. Coleta cultura, data, solo, irrigacao, produtividade
+    anterior, observacoes e coordenadas do usuario.
+    """
     print("=== SafraSmart - Analise Completa ===\n")
 
     cultura = tipo_cultura()
@@ -236,6 +346,7 @@ def main():
 
     lat = float(input("Latitude: ").replace(",", "."))
     lon = float(input("Longitude: ").replace(",", "."))
+
     resultado = analisar(
         lat=lat, lon=lon,
         cultura=cultura,
@@ -247,6 +358,8 @@ def main():
         usar_ndvi=True
     )
     exibir_relatorio(resultado)
+
+
 if __name__ == "__main__":
     # Teste com dados reais de Sorriso/MT (maior produtor de soja do Brasil)
     print("=== Teste SafraSmart - Fazenda em Sorriso/MT ===\n")
