@@ -229,13 +229,16 @@ function capturarGPS() {
 function buscarLocalizacaoIP() {
     const btn = document.getElementById("ipBtn");
     btn.disabled = true; btn.textContent = "Buscando localizacao via IP...";
-    fetch("https://ip-api.com/json/?fields=status,lat,lon,city,regionName,country")
+    fetch("https://ipinfo.io/json?token=")
         .then(r => r.json())
         .then(d => {
-            if (d.status === "success") {
-                definirLocalizacao(d.lat, d.lon);
+            if (d.loc) {
+                const partes = d.loc.split(",");
+                const lat = parseFloat(partes[0]);
+                const lon = parseFloat(partes[1]);
+                definirLocalizacao(lat, lon);
                 document.getElementById("localInfo").innerHTML =
-                    "Localizacao aproximada: " + d.city + ", " + d.regionName +
+                    "Localizacao aproximada: " + (d.city || "") + ", " + (d.region || "") +
                     " <em style='opacity:0.6;font-size:11px;'>(via IP)</em>";
                 btn.textContent = "Localizacao via IP";
             } else {

@@ -143,7 +143,7 @@ def iniciar_servidor():
     print("\n" + "=" * 50)
     print("  SAFRASMART — Servidor Web")
     print("=" * 50)
-    print(f"\n  Acesse no celular (mesma WiFi):")
+    print(f"\n  Acesse no celular (mesma WiFi) FASE( BETA ):")
     print(f"  http://{ip}:5000")
     print(f"\n  Local:")
     print(f"  http://127.0.0.1:5000")
