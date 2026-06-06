@@ -1,1 +1,6 @@
 .env/calcium-pod-497417-t0-5d27a8d8dba9.json
+.usuario_config.json
+safrasmart_entrega.zip
+__pycache__/
+safrasmart/__pycache__/
+safrasmart/api/__pycache__/

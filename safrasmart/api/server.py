@@ -62,7 +62,7 @@ def api_analisar():
             usar_ndvi=True
         )
         return jsonify(resultado)
-    except Exception as e:
+    except (KeyError, ValueError, TypeError) as e:
         return jsonify({"erro": str(e)}), 400
 
 
@@ -101,7 +101,7 @@ def api_sync():
                 usar_ndvi=True
             )
             resultados.append({"id": item.get("id"), "status": "ok", "resultado": res})
-        except Exception as e:
+        except (KeyError, ValueError, TypeError) as e:
             resultados.append({"id": item.get("id"), "status": "erro", "erro": str(e)})
     return jsonify(resultados)
 
@@ -135,7 +135,7 @@ def iniciar_servidor():
     try:
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
-    except Exception:
+    except (OSError, socket.timeout):
         ip = "127.0.0.1"
     finally:
         s.close()

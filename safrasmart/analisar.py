@@ -104,7 +104,7 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
             indices["risco_geada_pct"] = risco_geada(dados_clima)
             indices["dias_consecutivos_secos"] = dias_consecutivos_secos(dados_clima)
             resultado["indices"] = indices
-    except Exception as e:
+    except (ValueError, TypeError, KeyError, IndexError, ZeroDivisionError, AttributeError) as e:
         resultado["erros"].append(f"Erro no modulo clima: {e}")
 
     # === ETAPA 2: FENOLOGIA ===
@@ -120,7 +120,7 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
             "temp_ideal": fase_dados.get("temp_ideal"),
             "precip_ideal": fase_dados.get("precip_ideal_mm")
         }
-    except Exception as e:
+    except (KeyError, TypeError) as e:
         resultado["erros"].append(f"Erro ao determinar fase: {e}")
         fase_dados = {}
 
@@ -131,9 +131,7 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
         print("  [NDVI] Autenticando GEE...", end="", flush=True)
         try:
             import os
-            caminho_chave = os.environ.get("GEE_KEY_PATH")
-            if not caminho_chave:
-                raise ValueError("Variavel GEE_KEY_PATH nao definida")
+            caminho_chave = os.environ.get("GEE_KEY_PATH", "./.env/calcium-pod-497417-t0-5d27a8d8dba9.json")
             autenticar_gee(caminho_chave)
             print(" OK")
             print("  [NDVI] Buscando imagens Sentinel-2 (ate 90s)...", end="", flush=True)
@@ -153,7 +151,7 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
                 }
             else:
                 print(" sem dados no periodo")
-        except Exception as e:
+        except (TimeoutError, FileNotFoundError, ValueError, KeyError, TypeError) as e:
             print(" erro")
             resultado["erros"].append(f"NDVI indisponivel: {e}")
     elif usar_ndvi and not GEE_DISPONIVEL:
@@ -165,7 +163,7 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
         resultado["observacao"] = (
             analisar_obs(observacoes) if observacoes.strip() else None
         )
-    except Exception as e:
+    except (KeyError, TypeError) as e:
         resultado["erros"].append("Erro na analise de observacao")
 
     # === ETAPA 5: SCORES ===
@@ -199,7 +197,7 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
             nome: {"valor": sc["valor"], "confianca": sc["confianca"]}
             for nome, sc in todos_scores.items() if sc
         }
-    except Exception as e:
+    except (KeyError, TypeError, ValueError, ZeroDivisionError) as e:
         resultado["erros"].append(f"Erro no calculo de scores: {e}")
 
     # === ETAPA 6: RECOMENDACAO ===
@@ -217,7 +215,7 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
             alertas_obs,
             resultado.get("indices") or {}
         )
-    except Exception as e:
+    except (KeyError, TypeError) as e:
         resultado["erros"].append(f"Erro ao gerar recomendacao: {e}")
 
     resultado["status"] = "sucesso" if not resultado["erros"] else "parcial"

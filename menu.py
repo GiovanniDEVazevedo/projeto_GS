@@ -101,6 +101,7 @@ def main():
             limpar_tela()
             from safrasmart.analisar import main as analisar_main
             analisar_main()
+            input("\nPressione Enter para voltar ao menu...")
         elif opcao == "2":
             limpar_tela()
             from safrasmart.api.server import iniciar_servidor
@@ -110,9 +111,11 @@ def main():
             limpar_tela()
             from safrasmart.demo import rodar_demo
             rodar_demo()
+            input("\nPressione Enter para voltar ao menu...")
         elif opcao == "4":
             limpar_tela()
             nome = perguntar_nome()
+            input("\nPressione Enter para voltar ao menu...")
         elif opcao == "5":
             limpar_tela()
             print(f"\nSaindo... Ate logo, {nome}!")

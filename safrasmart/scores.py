@@ -411,7 +411,7 @@ if __name__ == "__main__":
         if dados_ndvi:
             ndvi_max = dados_ndvi["ndvi_max"]
             print(f"[4/5] NDVI maximo: {ndvi_max}")
-    except Exception:
+    except (TimeoutError, FileNotFoundError, ValueError):
         print("[4/5] NDVI indisponivel (continuando sem)")
 
     # 6. Scores
