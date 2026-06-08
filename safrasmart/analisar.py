@@ -3,7 +3,7 @@ from datetime import datetime, date
 from .modelos import (
     tipo_cultura, data_plantio, tipo_irrigacao, tipo_solo, prod_anterior, obs_user
 )
-from .clima import buscar_dados_meteo
+from .clima import buscar_dados_meteo,coordenadas
 from .indices import (
     resumo_climatico, dias_consecutivos_secos, dias_estresse_termico, risco_geada
 )
@@ -125,7 +125,9 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
         fase_dados = {}
 
     # === ETAPA 3: NDVI (opcional) ===
-    # Busca imagens Sentinel-2 com timeout de 90s
+    # Busca imagens Sentinel-2 com timeout de 90s.
+    # Limita o periodo a no maximo 2 apos o plantio para evitar
+    # ranges muito longos (ex: plantio em 2015 ate hoje = 11 anos).
     ndvi_max = None
     if usar_ndvi and GEE_DISPONIVEL:
         print("  [NDVI] Autenticando GEE...", end="", flush=True)
@@ -134,9 +136,10 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
             caminho_chave = os.environ.get("GEE_KEY_PATH", "./.env/calcium-pod-497417-t0-5d27a8d8dba9.json")
             autenticar_gee(caminho_chave)
             print(" OK")
+            fim_ndvi = min(datetime.now(), data_plantio_dt.replace(year=data_plantio_dt.year + 2))
             print("  [NDVI] Buscando imagens Sentinel-2 (ate 90s)...", end="", flush=True)
             dados_ndvi = buscar_ndvi(
-                lat, lon, data_plantio_dt, datetime.now(),
+                lat, lon, data_plantio_dt, fim_ndvi,
                 intervalo_dias=15, timeout_segundos=90
             )
             if dados_ndvi and "ndvi" in dados_ndvi and dados_ndvi["ndvi"]:
@@ -347,8 +350,7 @@ def main():
     prod_ant = prod_anterior()
     obs = obs_user()
 
-    lat = float(input("Latitude: ").replace(",", "."))
-    lon = float(input("Longitude: ").replace(",", "."))
+    lat ,lon = coordenadas()
 
     resultado = analisar(
         lat=lat, lon=lon,
