@@ -18,13 +18,15 @@ python -m safrasmart.db upgrade
 python -m safrasmart.api.server
 ```
 
-Em outro terminal, ative o mesmo ambiente e execute:
+O comando acima e a opção web do `menu.py` iniciam automaticamente o worker local que processa as análises. Não é necessário abrir um segundo terminal para uso local.
+
+Para executar o worker separadamente, configure `START_WORKER=false` no `.env` e, em outro terminal com o mesmo ambiente, execute:
 
 ```bash
 python -m safrasmart.worker
 ```
 
-Abra http://localhost:5000. Sem configurar `DATABASE_URL`, usa SQLite em `instance/safrasmart.db`. A API recebe/persiste solicitações; o worker precisa estar ativo para gerar resultados. O menu de terminal continua disponível com `python menu.py`; análises diretas pelo terminal não entram no histórico web.
+Abra http://localhost:5000. Sem configurar `DATABASE_URL`, usa SQLite em `instance/safrasmart.db`. A API recebe/persiste solicitações; o worker gera os resultados em segundo plano. O menu de terminal continua disponível com `python menu.py`; análises diretas pelo terminal não entram no histórico web.
 
 ## Conectar PostgreSQL
 
@@ -50,7 +52,15 @@ Em Linux, para servir a API em produção:
 gunicorn --bind 0.0.0.0:5000 --workers 2 safrasmart.api.server:app
 ```
 
-Execute o worker como processo separado e configure HTTPS no serviço de hospedagem/proxy. A API não executa migrações automaticamente. `GET /api/health` verifica conexão e tabelas. Nenhuma credencial de banco real está incluída.
+Com Gunicorn, execute o worker como processo separado e configure HTTPS no serviço de hospedagem/proxy. A API não executa migrações automaticamente. `GET /api/health` verifica conexão/tabelas e retorna `worker.ativo` para distinguir servidor disponível de serviço de análise parado. Nenhuma credencial de banco real está incluída.
+
+## Análise permanece na fila
+
+Se estiver usando uma versão anterior ou iniciou somente Flask/Gunicorn, execute `python -m safrasmart.worker` em outro terminal com o mesmo ambiente e a mesma conexão. Cadastros aceitos permanecem no banco e são processados quando o worker inicia; não precisa enviá-los de novo.
+
+Na versão atual, `python -m safrasmart.api.server` e `menu.py` iniciam o worker local por padrão (`START_WORKER=true`). O endpoint de saúde indica `worker.ativo=false` quando nenhum worker renova seu sinal no banco. A interface informa processamento indisponível, fila, tentativa em andamento, nova tentativa e falha final separadamente. Recarregue a página após atualizar o código para carregar a interface nova.
+
+Consultas externas têm limite por análise e até três tentativas. Ao desligar normalmente o servidor local, uma análise em execução é interrompida e devolvida à fila sem consumir uma tentativa. Em quedas abruptas, continua valendo a recuperação por lease. Não foram validados automaticamente os serviços externos nem a instância que roda no computador do usuário.
 
 ## Funcionamento offline
 

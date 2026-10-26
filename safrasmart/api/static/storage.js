@@ -66,6 +66,7 @@ export async function confirmar(resposta) {
         req.onsuccess = () => {
             if (!req.result) return;
             store.put({ ...req.result, estado: resposta.status, sincronizado: resposta.persistido === true,
+                tentativas: resposta.tentativas ?? req.result.tentativas ?? 0,
                 resultado: resposta.resultado || req.result.resultado || null, erro: resposta.erro || null,
                 atualizado_em: resposta.atualizado_em || new Date().toISOString() });
         };

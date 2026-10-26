@@ -4,16 +4,52 @@ import logging
 import multiprocessing as mp
 import os
 import time
+import threading
+from contextlib import contextmanager
 from datetime import datetime
+from uuid import uuid4
 
 from sqlalchemy.exc import SQLAlchemyError
 
 from .cache import CacheAnalitico
-from .config import database_url
 from .db import criar_engine
 from .repositorio import Repositorio
 
 log = logging.getLogger(__name__)
+
+
+class ParadaSolicitada(Exception):
+    pass
+
+
+@contextmanager
+def sinal_de_vida(repo, intervalo=5, ttl=30):
+    """Sinal renovado inclusive enquanto uma consulta externa está bloqueada."""
+    chave = "worker:" + uuid4().hex
+    encerrar = threading.Event()
+
+    def publicar():
+        try:
+            repo.cache_set(chave, {"tipo": "worker"}, ttl)
+        except SQLAlchemyError:
+            log.warning("Não foi possível renovar o sinal do worker.")
+
+    def renovar():
+        while not encerrar.wait(intervalo):
+            publicar()
+
+    publicar()
+    thread = threading.Thread(target=renovar, name="worker-heartbeat", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        encerrar.set()
+        thread.join(timeout=2)
+        try:
+            repo.cache_remover(chave)
+        except SQLAlchemyError:
+            log.warning("Sinal do worker expirará automaticamente.")
 
 
 def _filho(canal, url, dados):
@@ -34,7 +70,7 @@ def _filho(canal, url, dados):
         engine.dispose()
 
 
-def executar_isolado(dados, url, timeout=180):
+def executar_isolado(dados, url, timeout=180, parar=None):
     # Processo, e não thread: o timeout pode encerrar o trabalho efetivamente.
     contexto = mp.get_context("spawn")
     receber, enviar = contexto.Pipe(duplex=False)
@@ -42,15 +78,21 @@ def executar_isolado(dados, url, timeout=180):
     processo.start()
     enviar.close()
     try:
-        if receber.poll(timeout):
-            try:
-                resposta = receber.recv()
-            except EOFError:
-                raise RuntimeError("O processo analítico foi interrompido.") from None
-            if resposta.get("erro"):
-                raise RuntimeError(resposta["erro"])
-            return resposta["resultado"]
-        raise TimeoutError("Tempo máximo da análise excedido.")
+        prazo = time.monotonic() + timeout
+        while True:
+            if parar is not None and parar.is_set():
+                raise ParadaSolicitada()
+            restante = prazo - time.monotonic()
+            if restante <= 0:
+                raise TimeoutError("Tempo máximo da análise excedido.")
+            if receber.poll(min(.5, restante)):
+                try:
+                    resposta = receber.recv()
+                except EOFError:
+                    raise RuntimeError("O processo analítico foi interrompido.") from None
+                if resposta.get("erro"):
+                    raise RuntimeError(resposta["erro"])
+                return resposta["resultado"]
     finally:
         receber.close()
         processo.join(timeout=1)
@@ -62,13 +104,16 @@ def executar_isolado(dados, url, timeout=180):
             processo.join()
 
 
-def processar_um(repo, executar=None):
+def processar_um(repo, executar=None, parar=None):
     job = repo.reivindicar()
     if not job:
         return False
     inicio = time.monotonic()
     try:
-        resultado = (executar or (lambda dados: executar_isolado(dados, database_url())))(job["entrada"])
+        opcoes = {"parar": parar} if parar is not None else {}
+        resultado = (executar or (lambda dados: executar_isolado(dados, repo.engine.url, **opcoes)))(job["entrada"])
+    except ParadaSolicitada:
+        repo.devolver(job)
     except Exception:
         log.exception("analise_falhou id=%s tentativa=%s", job["id"], job["tentativas"])
         repo.finalizar(job, erro="Não foi possível concluir a análise. Uma nova tentativa será feita até o limite de 3.")
@@ -78,6 +123,21 @@ def processar_um(repo, executar=None):
     return True
 
 
+def rodar_worker(repo, parar=None, *, once=False, executar=None):
+    parar = parar if parar is not None else threading.Event()
+    with sinal_de_vida(repo):
+        while not parar.is_set():
+            try:
+                encontrou = processar_um(repo, executar=executar, parar=parar)
+            except SQLAlchemyError:
+                log.error("Banco indisponível no worker; verifique conexão e migrações.")
+                encontrou = False
+            if once:
+                break
+            if not encontrou:
+                parar.wait(2)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true", help="Processa no máximo um trabalho e termina")
@@ -85,16 +145,7 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     repo = Repositorio(criar_engine())
     try:
-        while True:
-            try:
-                encontrou = processar_um(repo)
-            except SQLAlchemyError:
-                log.exception("Banco indisponível no worker")
-                encontrou = False
-            if args.once:
-                break
-            if not encontrou:
-                time.sleep(2)
+        rodar_worker(repo, once=args.once)
     except KeyboardInterrupt:
         pass
     finally:
