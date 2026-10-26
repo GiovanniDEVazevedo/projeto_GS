@@ -5,3 +5,17 @@ __pycache__/
 safrasmart/__pycache__/
 safrasmart/api/__pycache__/
 integrantes.txt
+
+.env
+.env.*
+!.env.example
+.venv/
+instance/
+*.db
+*.db-shm
+*.db-wal
+.pytest_cache/
+**/__pycache__/
+*.pyc
+test-results/
+playwright-report/

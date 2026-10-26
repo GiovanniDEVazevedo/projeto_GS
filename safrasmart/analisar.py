@@ -1,227 +1,108 @@
-import sys
-from datetime import datetime, date
-from .modelos import (
-    tipo_cultura, data_plantio, tipo_irrigacao, tipo_solo, prod_anterior, obs_user
-)
-from .clima import buscar_dados_meteo,coordenadas
-from .indices import (
-    resumo_climatico, dias_consecutivos_secos, dias_estresse_termico, risco_geada
-)
+"""Pipeline versionado com evidências, cobertura e análise por fase estimada."""
+import logging
+import os
+from datetime import date, datetime, timedelta
+from uuid import uuid4
+
+from .modelos import tipo_cultura, data_plantio, tipo_irrigacao, tipo_solo, prod_anterior, obs_user
+from .clima import buscar_dados_meteo, coordenadas, hoje_local
+from .indices import resumo_climatico, recortar_periodo
 from .observacao import analisar_obs
-from .regras import fase_atual
-from .produtividade import potencial_ajustado
+from .regras import fase_atual, obter_tabela
 from .scores import score_clima, score_geral, score_historico, score_risco, score_solo
 from .recomendador import recomendar
+from .validacao import validar
 
-# =============================================================================
-# CATEGORIAS POSITIVAS QUE DEVEM SER FILTRADAS ANTES DE PASSAR AO RECOMENDADOR
-# =============================================================================
-# O recomendador so deve receber alertas NEGATIVOS (riscos).
-# Categorias como "clima_positivo" (ex: "chuva boa") sao usadas apenas
-# para calcular o sentimento geral, nao para gerar alertas de acao.
-# =============================================================================
-CAT_POSITIVAS = ("clima_positivo", "solo_positivo", "sentimento_positivo")
-
-try:
-    from .ndvi import autenticar_gee, buscar_ndvi
-    GEE_DISPONIVEL = True
-except ImportError:
-    GEE_DISPONIVEL = False
+log = logging.getLogger(__name__)
+VERSAO_MOTOR = "2.0.0"
 
 
 def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
-             prod_ant=None, observacoes="", usar_ndvi=True):
-    """
-    ORQUESTRADOR PRINCIPAL do pipeline SafraSmart.
-    
-    Executa as 6 etapas sequenciais do pipeline e retorna um dicionario
-    completo com todos os resultados. Cada etapa e independente — se uma
-    falha, as demais continuam e o erro e registrado.
-    
-    PARAMETROS:
-        lat (float): latitude da propriedade (ex: -12.55).
-        lon (float): longitude da propriedade (ex: -55.72).
-        cultura (str): "soja" ou "milho".
-        data_plantio_dt (datetime): data em que o plantio foi realizado.
-        solo (str): tipo de solo ("argiloso", "misto", "arenoso").
-        irrigacao (str): tipo de irrigacao ("sequeiro", "aspersao", "gotejo").
-        prod_ant (float, opcional): produtividade da safra anterior em sc/ha.
-        observacoes (str): texto livre do agricultor sobre a lavoura.
-        usar_ndvi (bool): True para tentar buscar NDVI via GEE.
-    
-    RETORNA: dict completo com todas as chaves:
-        "metadata" (dict): data, coordenadas, cultura, data plantio.
-        "clima" (dict): resumo climatico (temp_media, precip_total, fonte).
-        "indices" (dict): indices climaticos detalhados.
-        "fase" (dict): fase fenologica atual.
-        "ndvi" (dict): dados NDVI (se disponivel e ativado).
-        "observacao" (dict): analise da observacao do agricultor.
-        "scores" (dict): score geral + parciais.
-        "recomendacao" (dict): recomendacao final + alertas + acoes.
-        "erros" (list[str]): lista de erros ocorridos (vazia se tudo ok).
-        "status" (str): "sucesso" (sem erros) ou "parcial" (com erros).
-    
-    ETAPAS DO PIPELINE:
-    1. CLIMA: busca dados meteorologicos e calcula indices.
-    2. FENOLOGIA: identifica fase da cultura baseada em dias desde plantio.
-    3. NDVI: busca imagens Sentinel-2 via GEE (opcional, com timeout).
-    4. OBSERVACAO: processa texto livre do agricultor.
-    5. SCORES: calcula 4 dimensoes + score geral ponderado.
-    6. RECOMENDACAO: gera recomendacao final probabilistico.
-    """
+             prod_ant=None, observacoes="", usar_ndvi=True, cache=None, hoje=None):
+    validar({"id": str(uuid4()), "lat": lat, "lon": lon, "cultura": cultura,
+             "data_plantio": data_plantio_dt.strftime("%Y-%m-%d"), "solo": solo,
+             "irrigacao": irrigacao, "prod_ant": prod_ant, "observacoes": observacoes})
+    hoje = hoje or hoje_local()
+    plantio = data_plantio_dt.date()
+    dias = (hoje - plantio).days
+    fase_nome, fase_dados = fase_atual(cultura, dias)
+    tabela = obter_tabela(cultura)
+    ciclo = max(f["dias"][1] for f in tabela.values())
+    pos_ciclo = dias >= ciclo
+    referencia = list(tabela.values())[-1] if pos_ciclo else fase_dados
+    fim = min(hoje - timedelta(days=1), plantio + timedelta(days=ciclo - 1))
+    inicio_janela = max(plantio + timedelta(days=referencia["dias"][0]), fim - timedelta(days=29)) if dias >= 0 else fim - timedelta(days=29)
     resultado = {
-        "metadata": {
-            "data_analise": date.today().isoformat(),
-            "lat": lat, "lon": lon,
-            "cultura": cultura,
-            "data_plantio": data_plantio_dt.strftime("%Y-%m-%d")
-        },
-        "clima": None, "indices": None,
-        "fase": None, "ndvi": None,
-        "observacao": None, "scores": None,
-        "recomendacao": None,
-        "erros": []
+        "metadata": {"data_analise": hoje.isoformat(), "lat": lat, "lon": lon, "cultura": cultura,
+                     "data_plantio": plantio.isoformat(), "versao_motor": VERSAO_MOTOR,
+                     "contexto": "historico_do_ciclo_estimado" if pos_ciclo else "planejamento" if dias < 0 else "monitoramento",
+                     "natureza": "apoio_a_decisao_experimental"},
+        "clima": None, "indices": {}, "ndvi": None, "scores": None, "erros": [],
+        "fase": {"nome": fase_nome, "nome_amigavel": fase_dados["nome_amigavel"], "dias_apos_plantio": dias,
+                 "sensivel_geada": referencia.get("sensivel_geada", False), "temp_ideal": referencia.get("temp_ideal"),
+                 "precip_ideal": referencia.get("precip_ideal_mm"), "estimada": True,
+                 "limitacao": "Calendário genérico; varia com cultivar, região e manejo. Não confirma colheita."},
+        "observacao": analisar_obs(observacoes),
     }
-
-    # === ETAPA 1: CLIMA ===
-    # Busca dados climaticos das APIs em cascata e calcula indices
+    dados_clima = None
+    janela = None
+    parametros = {"tipo": "clima-v2", "lat": lat, "lon": lon, "dias": 365, "fim": fim.isoformat()}
     try:
-        dados_clima = buscar_dados_meteo(lat, lon)
-        if not dados_clima or not dados_clima.get("datas"):
-            resultado["erros"].append("API climatica nao retornou dados")
+        calcular = lambda: buscar_dados_meteo(lat, lon, fim=fim)
+        dados_clima = cache.obter_ou_calcular(parametros, calcular) if cache else calcular()
+        if dados_clima:
+            resumo = resumo_climatico(dados_clima)
+            resultado["clima"] = {"total_dias": len(dados_clima["datas"]), "temp_media": resumo["temp_media_geral"],
+                                  "precip_total": resumo["precip_total"], "fonte": dados_clima["fonte"],
+                                  "precip_completa": resumo["precip_completa"],
+                                  "periodo_inicio": resumo["periodo_inicio"], "periodo_fim": resumo["periodo_fim"],
+                                  "consultado_em": dados_clima.get("consultado_em")}
+            janela = recortar_periodo(dados_clima, inicio_janela, fim)
+            resultado["indices"] = resumo_climatico(janela)
         else:
-            resultado["clima"] = {
-                "total_dias": len(dados_clima["datas"]),
-                "temp_media": round(sum(
-                    (dados_clima["temp_max"][i] + dados_clima["temp_min"][i]) / 2
-                    for i in range(len(dados_clima["datas"]))
-                ) / len(dados_clima["datas"]), 1),
-                "precip_total": round(sum(dados_clima["precip"]), 1),
-                "fonte": dados_clima.get("fonte", "desconhecida")
-            }
-            indices = resumo_climatico(dados_clima)
-            indices["dias_estresse_termico"] = dias_estresse_termico(dados_clima)
-            indices["risco_geada_pct"] = risco_geada(dados_clima)
-            indices["dias_consecutivos_secos"] = dias_consecutivos_secos(dados_clima)
-            resultado["indices"] = indices
-    except (ValueError, TypeError, KeyError, IndexError, ZeroDivisionError, AttributeError) as e:
-        resultado["erros"].append(f"Erro no modulo clima: {e}")
+            resultado["erros"].append("Fontes climáticas indisponíveis; nenhuma condição foi presumida.")
+    except (ValueError, KeyError, TypeError, IndexError):
+        log.exception("Dados meteorológicos inválidos")
+        resultado["erros"].append("Dados climáticos inválidos ou incompletos.")
 
-    # === ETAPA 2: FENOLOGIA ===
-    # Calcula dias desde plantio e identifica fase fenologica
-    try:
-        dias_plantio = (datetime.now() - data_plantio_dt).days
-        fase_nome, fase_dados = fase_atual(cultura, dias_plantio)
-        resultado["fase"] = {
-            "nome": fase_nome,
-            "nome_amigavel": fase_dados["nome_amigavel"],
-            "dias_apos_plantio": dias_plantio,
-            "sensivel_geada": fase_dados.get("sensivel_geada", False),
-            "temp_ideal": fase_dados.get("temp_ideal"),
-            "precip_ideal": fase_dados.get("precip_ideal_mm")
-        }
-    except (KeyError, TypeError) as e:
-        resultado["erros"].append(f"Erro ao determinar fase: {e}")
-        fase_dados = {}
+    if usar_ndvi and plantio < hoje:
+        if os.getenv("GEE_KEY_PATH"):
+            try:
+                from .ndvi import buscar_ndvi
+                inicio_ndvi = datetime.combine(plantio, datetime.min.time())
+                fim_ndvi = datetime.combine(min(hoje, plantio + timedelta(days=ciclo)), datetime.min.time())
+                calcular_ndvi = lambda: buscar_ndvi(lat, lon, inicio_ndvi, fim_ndvi)
+                chave_ndvi = {"tipo": "ndvi-scl-v2", "lat": lat, "lon": lon,
+                              "inicio": plantio.isoformat(), "fim": fim_ndvi.isoformat(), "intervalo": 15, "buffer": 50}
+                ndvi = cache.obter_ou_calcular(chave_ndvi, calcular_ndvi, ttl=86400) if cache else calcular_ndvi()
+                if ndvi:
+                    resultado["ndvi"] = {**ndvi, "total_imagens": len(ndvi["ndvi"]),
+                        "ndvi_media": ndvi["ndvi_medio_geral"],
+                        "area": "Amostra em raio de 50 m do ponto; não representa o polígono da propriedade."}
+                else:
+                    resultado["erros"].append("NDVI sem observações válidas no período ou abaixo da cobertura mínima.")
+            except (ImportError, TimeoutError, RuntimeError, ValueError, OSError):
+                log.warning("NDVI indisponível")
+                resultado["erros"].append("NDVI indisponível; a análise continua sem dados de vegetação.")
+        else:
+            resultado["erros"].append("NDVI não configurado (GEE_KEY_PATH).")
 
-    # === ETAPA 3: NDVI (opcional) ===
-    # Busca imagens Sentinel-2 com timeout de 90s.
-    # Limita o periodo a no maximo 2 apos o plantio para evitar
-    # ranges muito longos (ex: plantio em 2015 ate hoje = 11 anos).
-    ndvi_max = None
-    if usar_ndvi and GEE_DISPONIVEL:
-        print("  [NDVI] Autenticando GEE...", end="", flush=True)
-        try:
-            import os
-            caminho_chave = os.environ.get("GEE_KEY_PATH", "./.env/calcium-pod-497417-t0-5d27a8d8dba9.json")
-            autenticar_gee(caminho_chave)
-            print(" OK")
-            fim_ndvi = min(datetime.now(), data_plantio_dt.replace(year=data_plantio_dt.year + 2))
-            print("  [NDVI] Buscando imagens Sentinel-2 (ate 90s)...", end="", flush=True)
-            dados_ndvi = buscar_ndvi(
-                lat, lon, data_plantio_dt, fim_ndvi,
-                intervalo_dias=15, timeout_segundos=90
-            )
-            if dados_ndvi and "ndvi" in dados_ndvi and dados_ndvi["ndvi"]:
-                print(" OK — %d composite(s)" % len(dados_ndvi["ndvi"]))
-                ndvi_max = max(dados_ndvi["ndvi"])
-                resultado["ndvi"] = {
-                    "total_imagens": len(dados_ndvi["ndvi"]),
-                    "ndvi_max": round(ndvi_max, 3),
-                    "ndvi_media": round(sum(dados_ndvi["ndvi"]) / len(dados_ndvi["ndvi"]), 3),
-                    "ndvi_min": round(min(dados_ndvi["ndvi"]), 3),
-                    "datas": dados_ndvi.get("datas", [])
-                }
-            else:
-                print(" sem dados no periodo")
-        except (TimeoutError, FileNotFoundError, ValueError, KeyError, TypeError) as e:
-            print(" erro")
-            resultado["erros"].append(f"NDVI indisponivel: {e}")
-    elif usar_ndvi and not GEE_DISPONIVEL:
-        resultado["erros"].append("Modulo NDVI nao instalado (earthengine-api)")
-
-    # === ETAPA 4: OBSERVACAO ===
-    # Processa texto livre do agricultor
-    try:
-        resultado["observacao"] = (
-            analisar_obs(observacoes) if observacoes.strip() else None
-        )
-    except (KeyError, TypeError) as e:
-        resultado["erros"].append("Erro na analise de observacao")
-
-    # === ETAPA 5: SCORES ===
-    # Calcula 4 dimensoes + score geral ponderado
-    try:
-        sc_clima = score_clima(
-            dados_clima if resultado["clima"] else None,
-            resultado["indices"] or {},
-            fase_dados or {},
-        )
-        sc_solo = score_solo(solo, irrigacao)
-        sc_historico = score_historico(
-            prod_ant, lat, lon, cultura, solo, irrigacao, ndvi_max
-        )
-        temp_media = resultado.get("clima", {}).get("temp_media") if resultado.get("clima") else None
-        temp_ideal = resultado.get("fase", {}).get("temp_ideal") if resultado.get("fase") else None
-        sc_risco = score_risco(
-            resultado.get("observacao"),
-            resultado.get("indices") or {},
-            temp_media=temp_media,
-            temp_ideal=temp_ideal
-        )
-        todos_scores = {
-            "clima": sc_clima,
-            "solo": sc_solo,
-            "historico": sc_historico,
-            "risco": sc_risco
-        }
-        resultado["scores"] = score_geral(todos_scores)
-        resultado["scores"]["parciais"] = {
-            nome: {"valor": sc["valor"], "confianca": sc["confianca"]}
-            for nome, sc in todos_scores.items() if sc
-        }
-    except (KeyError, TypeError, ValueError, ZeroDivisionError) as e:
-        resultado["erros"].append(f"Erro no calculo de scores: {e}")
-
-    # === ETAPA 6: RECOMENDACAO ===
-    # Filtra alertas positivos e gera recomendacao final
-    try:
-        alertas_obs = []
-        if resultado.get("observacao") and resultado["observacao"].get("alertas"):
-            alertas_obs = [
-                a for a in resultado["observacao"]["alertas"]
-                if a.get("categoria") not in CAT_POSITIVAS
-            ]
-        scores_wrapped = {"geral": resultado["scores"]}
-        resultado["recomendacao"] = recomendar(
-            scores_wrapped,
-            alertas_obs,
-            resultado.get("indices") or {}
-        )
-    except (KeyError, TypeError) as e:
-        resultado["erros"].append(f"Erro ao gerar recomendacao: {e}")
-
-    resultado["status"] = "sucesso" if not resultado["erros"] else "parcial"
+    indices = resultado["indices"]
+    sc_clima = score_clima(janela, indices, referencia) if dias >= 0 else score_clima(None, {}, {})
+    parciais = {"clima": sc_clima, "solo": score_solo(solo, irrigacao),
+                "historico": score_historico(prod_ant, lat, lon, cultura, solo, irrigacao),
+                "risco": score_risco(resultado["observacao"], indices,
+                    temp_media=indices.get("temp_media_geral"), temp_ideal=referencia.get("temp_ideal"))}
+    resultado["scores"] = {**score_geral(parciais), "parciais": parciais}
+    resultado["recomendacao"] = recomendar({"geral": resultado["scores"]}, resultado["observacao"]["alertas"], indices)
+    resultado["confiabilidade"] = {
+        "qualidade_dados": "suficiente_para_triagem" if sc_clima["valor"] is not None else "insuficiente",
+        "cobertura_temperatura": indices.get("cobertura_temperatura", 0),
+        "cobertura_precipitacao": indices.get("cobertura_precipitacao", 0),
+        "incerteza_agronomica": "alta", "modelo_validado": False,
+        "regras": "fenologia-calendario-v2-experimental", "observacoes": "relato_nao_verificado",
+    }
+    resultado["status"] = "parcial" if resultado["erros"] or sc_clima["valor"] is None else "sucesso"
     return resultado
 
 
@@ -282,7 +163,7 @@ def exibir_relatorio(resultado):
     if resultado.get("observacao"):
         o = resultado["observacao"]
         print(f"\n+--- OBSERVACAO DO AGRICULTOR ---+")
-        print(f"  Sentimento: {o.get('sentimento', 'N/A')}")
+        print("  Origem: relato do produtor, não verificado")
         print(f"  Alertas detectados: {o.get('total_alertas', 0)}")
         if o.get("alertas"):
             for a in o["alertas"]:
@@ -292,12 +173,12 @@ def exibir_relatorio(resultado):
     if resultado.get("scores"):
         s = resultado["scores"]
         print(f"\n+--- SCORES ---+")
-        print(f"  Geral: {s['valor']:.1f}/10 - {s['classificacao']}")
+        print(f"  Índice experimental: {s['valor']} - {s['classificacao']}")
         print(f"  Confianca: {s['confianca']}")
         if s.get("parciais"):
             for nome, ps in s["parciais"].items():
-                barra = "#" * int(ps["valor"]) + "." * (10 - int(ps["valor"]))
-                print(f"    {nome:10s}: {ps['valor']:.1f}/10 [{barra}] ({ps['confianca']})")
+                barra = "disponível" if ps["valor"] is not None else "sem dados"
+                print(f"    {nome:10s}: {ps['valor']} [{barra}] ({ps['confianca']})")
 
     if resultado.get("recomendacao"):
         r = resultado["recomendacao"]

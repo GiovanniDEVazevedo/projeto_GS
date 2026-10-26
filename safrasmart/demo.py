@@ -129,11 +129,12 @@ def rodar_demo():
     for cenario, res in zip(CENARIOS, resultados):
         s = res.get("scores", {})
         r = res.get("recomendacao", {})
-        n = s.get("valor", 0)
+        n = s.get("valor")
+        nota = f"{n:.1f}" if n is not None else "N/D"
         c = s.get("classificacao", "-")
         al = len(r.get("alertas_ativos", []))
         ac = len(r.get("acoes_recomendadas", []))
-        print(f"{cenario['titulo'][:20]:20s} {n:6.1f} {c:>10s} {al:8d} {ac:6d}")
+        print(f"{cenario['titulo'][:20]:20s} {nota:>6s} {c:>10s} {al:8d} {ac:6d}")
 
     print(f"\n{'=' * 55}")
     print(" Fim da demonstracao SafraSmart")
