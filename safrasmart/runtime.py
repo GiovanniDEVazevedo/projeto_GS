@@ -1,17 +1,17 @@
 """Worker no servidor local; em Gunicorn, o processo continua separado."""
 import logging
-import os
 import threading
 from contextlib import contextmanager
 
 from .worker import rodar_worker
+from .config import booleano_env
 
 log = logging.getLogger(__name__)
 
 
 @contextmanager
 def worker_local(app):
-    habilitado = os.getenv("START_WORKER", "true").strip().lower() in {"true", "1", "yes", "on"}
+    habilitado = booleano_env("START_WORKER", True)
     if not habilitado:
         log.info("Worker local desativado. Execute python -m safrasmart.worker separadamente.")
         yield

@@ -2,31 +2,41 @@
 
 Aplicação Python/Flask de apoio à decisão agrícola para soja e milho, com PWA offline-first, histórico persistente e processamento em segundo plano. Os indicadores são experimentais: não representam probabilidade de sucesso, diagnóstico de doença ou recomendação validada de plantio.
 
-## Executar localmente
+## Rodar com um comando
 
-Requer Python 3.10+; Node.js é usado somente nos testes JavaScript.
-
-```bash
-python -m venv .venv
-# Linux/macOS:
-source .venv/bin/activate
-# Windows PowerShell: .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-cp .env.example .env
-# Windows PowerShell: Copy-Item .env.example .env
-python -m safrasmart.db upgrade
-python -m safrasmart.api.server
-```
-
-O comando acima e a opção web do `menu.py` iniciam automaticamente o worker local que processa as análises. Não é necessário abrir um segundo terminal para uso local.
-
-Para executar o worker separadamente, configure `START_WORKER=false` no `.env` e, em outro terminal com o mesmo ambiente, execute:
+Requer Python 3.10+ instalado. Na raiz do projeto, execute:
 
 ```bash
-python -m safrasmart.worker
+python iniciar.py
 ```
 
-Abra http://localhost:5000. Sem configurar `DATABASE_URL`, usa SQLite em `instance/safrasmart.db`. A API recebe/persiste solicitações; o worker gera os resultados em segundo plano. O menu de terminal continua disponível com `python menu.py`; análises diretas pelo terminal não entram no histórico web.
+O comando cria `.venv`, instala as dependências (inclusive Earth Engine), cria `.env` se ele ainda não existir, valida a configuração, aplica as migrações e inicia servidor + worker no mesmo terminal. Não precisa ativar o ambiente virtual nem executar `pip`, migrações e worker separadamente. Nas próximas execuções, reaproveita o ambiente; reinstala quando os arquivos de dependências mudam ou faltam módulos.
+
+Abra http://localhost:5000. Use `Ctrl+C` para encerrar. A primeira execução precisa de internet para instalar pacotes. Seu `.env` existente nunca é substituído.
+
+## Colar o JSON do Earth Engine
+
+No `.env`, cole o conteúdo **inteiro** do JSON baixado da conta de serviço entre as aspas simples:
+
+```dotenv
+START_WORKER=true
+ENABLE_NDVI=true
+GEE_SERVICE_ACCOUNT_JSON='COLE_AQUI_O_JSON_COMPLETO'
+GEE_PROJECT=
+MIN_NDVI_COVERAGE=0.5
+```
+
+Pode ocupar várias linhas, começando em `{` e terminando em `}`. Mantenha os escapes `\n` da chave privada. O projeto é lido do `project_id`, por isso `GEE_PROJECT` pode ficar vazio. Veja o [exemplo completo](docs/EARTH_ENGINE.md).
+
+Se o `.env` ainda não existir, você pode copiar `.env.example` para `.env` no editor e preencher antes da primeira execução. Outra opção é deixar o comando criá-lo, encerrar, colar o JSON e executar `python iniciar.py` novamente. Sem credencial, o sistema funciona com clima e informa NDVI indisponível. Uma chave de API simples não substitui o JSON da conta de serviço.
+
+Sem `DATABASE_URL`, usa SQLite em `instance/safrasmart.db`. Configure a conexão antes de iniciar para usar outro banco. Análises diretas pelo terminal (`python menu.py`) continuam disponíveis; elas não entram no histórico web. A opção web desse menu reutiliza a inicialização centralizada.
+
+Para preparar tudo sem abrir o servidor:
+
+```bash
+python iniciar.py --preparar
+```
 
 ## Conectar PostgreSQL
 
@@ -38,11 +48,7 @@ DATABASE_URL=postgresql+psycopg://usuario:senha@host:5432/safrasmart?sslmode=req
 
 Use os dados reais do provedor; codifique caracteres especiais da senha na URL. URLs iniciadas por `postgres://` e `postgresql://` também são aceitas pela configuração de ambiente. Não publique `.env` nem chaves de serviço.
 
-Aplique as migrações antes de iniciar API e worker:
-
-```bash
-python -m safrasmart.db upgrade
-```
+O comando `python iniciar.py` aplica as migrações antes de iniciar a aplicação. Para revisar somente a preparação, use `python iniciar.py --preparar`.
 
 API e worker precisam compartilhar a mesma `DATABASE_URL`. A migração cria propriedades, safras, análises e cache, com índices, chaves estrangeiras e restrições de idempotência. Trocar a URL não transfere os dados de um SQLite existente para PostgreSQL; faça uma migração dos dados separadamente se precisar conservar esse histórico.
 
@@ -58,7 +64,7 @@ Com Gunicorn, execute o worker como processo separado e configure HTTPS no servi
 
 Se estiver usando uma versão anterior ou iniciou somente Flask/Gunicorn, execute `python -m safrasmart.worker` em outro terminal com o mesmo ambiente e a mesma conexão. Cadastros aceitos permanecem no banco e são processados quando o worker inicia; não precisa enviá-los de novo.
 
-Na versão atual, `python -m safrasmart.api.server` e `menu.py` iniciam o worker local por padrão (`START_WORKER=true`). O endpoint de saúde indica `worker.ativo=false` quando nenhum worker renova seu sinal no banco. A interface informa processamento indisponível, fila, tentativa em andamento, nova tentativa e falha final separadamente. Recarregue a página após atualizar o código para carregar a interface nova.
+Na versão atual, `python iniciar.py` prepara o banco e inicia servidor + worker local por padrão (`START_WORKER=true`). O endpoint de saúde indica `worker.ativo=false` quando nenhum worker renova seu sinal no banco. A interface informa processamento indisponível, fila, tentativa em andamento, nova tentativa e falha final separadamente. Recarregue a página após atualizar o código para carregar a interface nova.
 
 Consultas externas têm limite por análise e até três tentativas. Ao desligar normalmente o servidor local, uma análise em execução é interrompida e devolvida à fila sem consumir uma tentativa. Em quedas abruptas, continua valendo a recuperação por lease. Não foram validados automaticamente os serviços externos nem a instância que roda no computador do usuário.
 
@@ -92,11 +98,7 @@ O histórico do servidor é isolado por uma credencial aleatória por dispositiv
 
 ## NDVI opcional
 
-```bash
-pip install -r requirements-ndvi.txt
-```
-
-Cole o JSON completo da conta de serviço em `GEE_SERVICE_ACCOUNT_JSON` no `.env`. O projeto é lido automaticamente do campo `project_id`; `GEE_PROJECT` permite sobrescrevê-lo. A alternativa existente por arquivo, `GEE_KEY_PATH`, continua disponível. Veja o [exemplo para copiar e colar](docs/EARTH_ENGINE.md). A conta precisa de acesso ao Earth Engine no Google Cloud. Use `ENABLE_NDVI=false` para desativar; sem credenciais, o relatório informa indisponibilidade e continua com os demais dados.
+As dependências do Earth Engine são instaladas pelo comando único. Cole o JSON completo da conta de serviço em `GEE_SERVICE_ACCOUNT_JSON` no `.env`. O projeto é lido automaticamente do campo `project_id`; `GEE_PROJECT` permite sobrescrevê-lo. Veja o [exemplo para copiar e colar](docs/EARTH_ENGINE.md). A conta precisa de acesso ao Earth Engine no Google Cloud. Use `ENABLE_NDVI=false` para desativar; sem credenciais, o relatório informa indisponibilidade e continua com os demais dados.
 
 O cálculo usa Sentinel-2 SR, máscara por pixel SCL, cobertura mínima configurável e amostra em raio de 50 metros. Não representa a propriedade inteira nem diagnostica a causa de baixo vigor. O trabalho é isolado em processo para permitir encerramento efetivo por timeout.
 
@@ -111,6 +113,16 @@ O cálculo usa Sentinel-2 SR, máscara por pixel SCL, cobertura mínima configur
 - Entradas são validadas; resultados são renderizados com `textContent`; API não entra no cache do service worker.
 
 As faixas agronômicas ainda precisam de calibração com especialistas. Planejamento de plantio requer referências regionais como o ZARC. Não foram implementados polígonos/PostGIS, diagnóstico automático, previsão de produtividade ou sincronização entre contas.
+
+## Estrutura da inicialização
+
+- `iniciar.py`: entrada única, sem dependências externas prévias.
+- `safrasmart/bootstrap.py`: ambiente virtual, dependências e criação inicial do `.env`.
+- `safrasmart/cli.py`: validação de configuração, migrações e inicialização.
+- `safrasmart/runtime.py`: ciclo de vida do worker local.
+- `safrasmart/credenciais_gee.py`: leitura do JSON da conta de serviço.
+
+Quem já instalou as dependências pode executar `python -m safrasmart`, que pula somente a preparação do ambiente virtual. Os comandos antigos de API e worker continuam disponíveis para uso técnico; não são necessários no fluxo local recomendado. Em produção com Gunicorn, as migrações e o worker continuam sendo processos administrados separadamente.
 
 ## Testes
 
