@@ -99,3 +99,28 @@ test('lotes respeitam limite de 50', async () => {
     assert.deepEqual(tamanhos, [50, 50, 21]);
     assert.equal(storage.data.size, 121);
 });
+
+import {mensagemDaAnalise} from '../safrasmart/api/static/sync.js';
+
+test('worker ausente não aparece como análise em andamento', () => {
+    const texto = mensagemDaAnalise({...record('a'), sincronizado: true}, false);
+    assert.match(texto, /processamento está temporariamente indisponível/);
+    assert.match(texto, /está salvo/);
+});
+
+test('análise realmente em execução informa tentativa', () => {
+    const texto = mensagemDaAnalise({...record('a'), sincronizado: true, estado: 'processando', tentativas: 2}, true);
+    assert.match(texto, /tentativa 2 de 3/);
+});
+
+test('falha final não recebe mensagem de fila nem de nova tentativa', () => {
+    const texto = mensagemDaAnalise({...record('a'), sincronizado: true, estado: 'erro', erro: 'Falhou após 3 tentativas.'}, false);
+    assert.match(texto, /Falhou após 3 tentativas/);
+    assert.doesNotMatch(texto, /indisponível|nova tentativa automaticamente/);
+});
+
+test('retry é distinguido de dados inválidos', () => {
+    const texto = mensagemDaAnalise({...record('a'), sincronizado: true, erro: 'Falha temporária'}, true);
+    assert.match(texto, /nova tentativa automaticamente/);
+    assert.doesNotMatch(texto, /revise os dados/);
+});

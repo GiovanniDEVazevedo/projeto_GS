@@ -1,6 +1,18 @@
 // Uma resposta HTTP 200 não confirma todos os itens. Somente a confirmação
 // individual persistida pode mudar o estado local; os registros nunca são apagados.
 const ESTADOS_SERVIDOR = new Set(['pendente', 'processando', 'ok', 'erro']);
+
+export function mensagemDaAnalise(registro, processamentoDisponivel = null) {
+    if (!registro.sincronizado) return registro.erro || 'Registro salvo neste dispositivo. Aguardando acesso ao servidor para enviar.';
+    if (registro.estado === 'erro') return (registro.erro || 'Não foi possível concluir a análise.') + ' Seus dados foram preservados.';
+    if (['pendente', 'processando'].includes(registro.estado) && processamentoDisponivel === false) {
+        return 'Seu pedido foi recebido e está salvo. O processamento está temporariamente indisponível; continuará quando o serviço voltar.';
+    }
+    if (registro.estado === 'pendente' && registro.erro) return 'A tentativa anterior falhou. O servidor fará uma nova tentativa automaticamente; seus dados estão salvos.';
+    if (registro.estado === 'processando') return `Análise em andamento (tentativa ${registro.tentativas || 1} de 3). Consultando os dados climáticos e, quando configurado, o satélite.`;
+    return 'Recebido pelo servidor. Na fila para iniciar a análise.';
+}
+
 export function criarSincronizador({storage, request}) {
     let executando = null;
     async function executar() {

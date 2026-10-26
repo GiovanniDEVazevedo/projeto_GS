@@ -6,6 +6,7 @@ from sqlalchemy import (CheckConstraint, Date, Float, ForeignKey, Index, Integer
                         String, Text, UniqueConstraint, create_engine, event)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.engine import make_url
 
 from .config import ROOT, database_url, oracle_connect_args
 from .tipos_db import DocumentoJSON, instante_db

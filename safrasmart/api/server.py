@@ -86,7 +86,7 @@ def create_app(config=None):
         with repo.session() as s:
             # Também detecta banco sem migrações, e não somente conexão aberta.
             s.execute(select(Analise.id).limit(1))
-        return jsonify(status="ok")
+        return jsonify(status="ok", worker=repo.status_worker())
 
     @app.route("/api/analises", methods=["POST"])
     @app.route("/api/analisar", methods=["POST"])
@@ -143,10 +143,13 @@ app = create_app()
 
 
 def iniciar_servidor():
+    from safrasmart.runtime import worker_local
     host = os.getenv("HOST", "127.0.0.1")
     port = int(os.getenv("PORT", "5000"))
-    print(f"SafraSmart: http://{host}:{port} — inicie também python -m safrasmart.worker")
-    app.run(host=host, port=port, debug=False)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    print(f"SafraSmart: http://{host}:{port}")
+    with worker_local(app):
+        app.run(host=host, port=port, debug=False, use_reloader=False)
 
 
 if __name__ == "__main__":
