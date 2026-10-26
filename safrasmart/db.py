@@ -6,6 +6,7 @@ from sqlalchemy import (JSON, Date, DateTime, Float, ForeignKey, Index, Integer,
                         String, Text, UniqueConstraint, create_engine, event)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.engine import make_url
 
 from .config import ROOT, database_url
 
@@ -75,12 +76,12 @@ class CacheDado(Base):
 
 
 def criar_engine(url=None):
-    url = url or database_url()
-    opts = {"pool_pre_ping": True}
-    if url.startswith("sqlite"):
+    url = make_url(url or database_url())
+    opts = {"pool_pre_ping": True, "hide_parameters": True}
+    if url.get_backend_name() == "sqlite":
         (ROOT / "instance").mkdir(exist_ok=True)
         opts["connect_args"] = {"check_same_thread": False, "timeout": 30}
-        if ":memory:" in url:
+        if url.database in (None, "", ":memory:"):
             opts["poolclass"] = StaticPool
     engine = create_engine(url, **opts)
     if engine.dialect.name == "sqlite":

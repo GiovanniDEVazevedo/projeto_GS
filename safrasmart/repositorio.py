@@ -4,7 +4,7 @@ import json
 from datetime import date, timedelta
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from .db import Analise, CacheDado, Propriedade, Safra, agora, sessoes
@@ -129,6 +129,25 @@ class Repositorio:
             r = s.execute(update(Analise).where(Analise.id == job["id"], Analise.lease_token == job["token"])
                           .values(**valores))
             return r.rowcount == 1  # um worker atrasado não sobrescreve outro
+
+    def devolver(self, job):
+        """Parada normal: devolver a operação sem consumir uma tentativa."""
+        with self.session.begin() as s:
+            r = s.execute(update(Analise).where(Analise.id == job["id"], Analise.lease_token == job["token"])
+                .values(status="pendente", lease_token=None, lease_ate=None, erro=None,
+                        tentativas=Analise.tentativas - 1, disponivel_em=agora(), atualizado_em=agora()))
+            return r.rowcount == 1
+
+    def status_worker(self):
+        # Usa o cache existente: não exige uma nova tabela ou migração.
+        with self.session() as s:
+            ativos = s.scalar(select(func.count()).select_from(CacheDado).where(
+                CacheDado.chave.like("worker:%"), CacheDado.expira_em > agora()))
+        return {"ativo": ativos > 0, "instancias": ativos}
+
+    def cache_remover(self, chave):
+        with self.session.begin() as s:
+            s.execute(delete(CacheDado).where(CacheDado.chave == chave))
 
     def cache_get(self, chave):
         with self.session() as s:

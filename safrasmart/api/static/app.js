@@ -1,5 +1,5 @@
 import * as storage from './storage.js';
-import {criarSincronizador} from './sync.js';
+import {criarSincronizador, mensagemDaAnalise} from './sync.js';
 
 const $ = id => document.getElementById(id);
 let token;
@@ -9,6 +9,7 @@ let precisao = null;
 let intervalo = 15000;
 let timer;
 let atualizando = false;
+let processamentoDisponivel = null;
 const mensagem = texto => { $('mensagem').textContent = texto; };
 
 async function request(url, options = {}) {
@@ -32,11 +33,14 @@ async function sincronizar() {
     try {
         const health = await fetch('/api/health', {cache: 'no-store', signal: AbortSignal.timeout(5000)});
         if (!health.ok) throw new Error('Servidor ou banco indisponível.');
+        const diagnostico = await health.json();
+        processamentoDisponivel = typeof diagnostico.worker?.ativo === 'boolean' ? diagnostico.worker.ativo : null;
         await sincronizarFila();
-        $('statusBadge').textContent = 'Servidor disponível';
-        $('statusBadge').className = 'badge online';
+        $('statusBadge').textContent = processamentoDisponivel === false ? 'Servidor disponível · análises pausadas' : 'Servidor disponível';
+        $('statusBadge').className = processamentoDisponivel === false ? 'badge atencao' : 'badge online';
         intervalo = 15000;
     } catch {
+        processamentoDisponivel = null;
         $('statusBadge').textContent = 'Sem acesso ao servidor';
         $('statusBadge').className = 'badge offline';
         intervalo = Math.min(intervalo * 2, 120000);
@@ -69,15 +73,14 @@ async function atualizarHistorico() {
             selecionada = registro.id;
             preencherFormulario(registro.dados);
             if (registro.resultado) exibirResultado(registro.resultado);
-            else { $('resultado').style.display = 'none'; mensagem(registro.erro || 'Dados salvos. O resultado ficará disponível após o processamento.'); }
+            else { $('resultado').style.display = 'none'; mensagem(mensagemDaAnalise(registro, processamentoDisponivel)); }
         });
         $('historicoLista').append(botao);
     }
     if (selecionada) {
         const atual = registros.find(r => r.id === selecionada);
         if (atual?.resultado) exibirResultado(atual.resultado, false);
-        else if (atual?.erro) mensagem(atual.erro + ' O registro foi preservado; revise os dados e salve uma nova análise se necessário.');
-        else if (atual?.sincronizado) mensagem('Recebido pelo servidor. Aguardando o processamento da análise.');
+        else if (atual) mensagem(mensagemDaAnalise(atual, processamentoDisponivel));
     }
 }
 
