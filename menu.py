@@ -104,8 +104,8 @@ def main():
             input("\nPressione Enter para voltar ao menu...")
         elif opcao == "2":
             limpar_tela()
-            from safrasmart.api.server import iniciar_servidor
-            iniciar_servidor()
+            from safrasmart.cli import main as iniciar_web
+            iniciar_web([])
             break
         elif opcao == "3":
             limpar_tela()

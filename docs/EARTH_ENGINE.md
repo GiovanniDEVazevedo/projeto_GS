@@ -4,19 +4,13 @@ O backend usa a credencial **JSON da conta de serviço** do Google Cloud. Uma ch
 
 ## Configuração rápida
 
-1. Instale as dependências opcionais:
-
-```bash
-pip install -r requirements-ndvi.txt
-```
-
-2. Na raiz do projeto, abra seu `.env` (ou copie `.env.example` se ainda não existir). Configure:
+1. Na raiz do projeto, copie `.env.example` para `.env` e abra no editor. Configure:
 
 ```dotenv
+START_WORKER=true
 ENABLE_NDVI=true
 GEE_SERVICE_ACCOUNT_JSON='COLE_AQUI_O_CONTEUDO_COMPLETO_DO_ARQUIVO_JSON'
 GEE_PROJECT=
-GEE_KEY_PATH=
 MIN_NDVI_COVERAGE=0.5
 ```
 
@@ -38,7 +32,6 @@ GEE_SERVICE_ACCOUNT_JSON='{
   "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs"
 }'
 GEE_PROJECT=
-GEE_KEY_PATH=
 MIN_NDVI_COVERAGE=0.5
 ```
 
@@ -46,15 +39,13 @@ O exemplo acima mostra o formato; use **o JSON original completo**, incluindo qu
 
 `GEE_PROJECT` pode ficar vazio: a aplicação lê `project_id` automaticamente. Preencha-o apenas se precisar usar outro projeto habilitado e acessível à conta de serviço.
 
-3. Reinicie a API e o worker para carregar o `.env` atualizado:
+2. Execute um único comando:
 
 ```bash
-python -m safrasmart.api.server
+python iniciar.py
 ```
 
-```bash
-python -m safrasmart.worker
-```
+Ele cria/reutiliza o ambiente virtual, instala as dependências do Earth Engine, valida o formato do JSON, aplica migrações e inicia servidor + worker. Não solicita o caminho de um arquivo de chave. Para recarregar um `.env` editado, encerre com `Ctrl+C` e execute o mesmo comando novamente.
 
 Novas análises com data de plantio anterior a hoje passam a tentar a consulta NDVI. Uma análise concluída anteriormente não é recalculada automaticamente; salve uma nova para testar.
 
@@ -64,19 +55,6 @@ No [Google Cloud — Contas de serviço](https://console.cloud.google.com/iam-ad
 
 O projeto precisa estar registrado para uso do Earth Engine, ter a Earth Engine API ativada e conceder acesso adequado à conta de serviço. Uma chave válida, isoladamente, não configura essas permissões.
 
-## Alternativa: manter o JSON em arquivo
-
-Se preferir manter a chave fora do `.env`:
-
-```dotenv
-ENABLE_NDVI=true
-GEE_SERVICE_ACCOUNT_JSON=''
-GEE_KEY_PATH=C:/credenciais/earth-engine.json
-GEE_PROJECT=
-```
-
-Também aceita caminhos absolutos Linux/macOS, como `/caminho/seguro/earth-engine.json`. Caminhos relativos são resolvidos a partir da raiz do projeto. Quando o JSON no ambiente e o caminho estão preenchidos, o JSON tem prioridade; uma configuração inválida não troca silenciosamente para outra credencial.
-
 ## Cuidados com a chave
 
 Coloque a credencial real somente no seu `.env` local ou em um gerenciador de segredos da hospedagem. `.env.example` contém apenas exemplos e é publicado no GitHub. Não cole chaves reais nele, no frontend ou na conversa.
@@ -85,6 +63,6 @@ O `.env` é ignorado pelo Git. Para produção em serviços que suportam Applica
 
 ## Validação desta implementação
 
-Os testes verificam leitura do `.env` multilinha, preservação da chave e de seus escapes, prioridade entre configurações, compatibilidade com arquivo e mensagens que não exibem o segredo. Não foi feita autenticação real no Google nem usada uma chave privada real nesta alteração.
+Os testes verificam leitura do `.env` multilinha, preservação da chave e de seus escapes, prioridade entre configurações, compatibilidade legada e mensagens que não exibem o segredo. Não foi feita autenticação real no Google nem usada uma chave privada real nesta alteração.
 
 Referência oficial: https://developers.google.com/earth-engine/guides/service_account

@@ -2,7 +2,6 @@
 import argparse
 import logging
 import multiprocessing as mp
-import os
 import time
 import threading
 from contextlib import contextmanager
@@ -12,6 +11,7 @@ from uuid import uuid4
 from sqlalchemy.exc import SQLAlchemyError
 
 from .cache import CacheAnalitico
+from .config import booleano_env
 from .db import criar_engine
 from .repositorio import Repositorio
 
@@ -59,7 +59,7 @@ def _filho(canal, url, dados):
         resultado = analisar(lat=dados["lat"], lon=dados["lon"], cultura=dados["cultura"],
             data_plantio_dt=datetime.fromisoformat(dados["data_plantio"]), solo=dados["solo"],
             irrigacao=dados["irrigacao"], prod_ant=dados["prod_ant"], observacoes=dados["observacoes"],
-            usar_ndvi=os.getenv("ENABLE_NDVI", "true").lower() == "true",
+            usar_ndvi=booleano_env("ENABLE_NDVI", True),
             cache=CacheAnalitico(Repositorio(engine)))
         canal.send({"resultado": resultado})
     except Exception:
