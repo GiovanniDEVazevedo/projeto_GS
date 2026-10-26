@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import pytest
 import requests
+from sqlalchemy.engine import make_url
 
 from safrasmart.api.server import create_app
 from safrasmart.db import criar_engine, migrar
@@ -27,12 +28,14 @@ def app(tmp_path):
     # TEST_DATABASE_URL deve apontar exclusivamente para um banco descartável.
     url = os.getenv("TEST_DATABASE_URL", f"sqlite:///{tmp_path / 'teste.db'}")
     if os.getenv("TEST_DATABASE_URL"):
+        if make_url(url).get_backend_name() != "sqlite" and os.getenv("TEST_ALLOW_DATABASE_RESET") != "1":
+            pytest.fail("Use um schema descartável e TEST_ALLOW_DATABASE_RESET=1 para autorizar recriar tabelas.")
         from safrasmart.db import Base
-        from sqlalchemy import text
+        from sqlalchemy import Column, MetaData, String, Table
         engine = criar_engine(url)
         Base.metadata.drop_all(engine)
-        with engine.begin() as c:
-            c.execute(text("DROP TABLE IF EXISTS alembic_version"))
+        # DROP TABLE IF EXISTS não existe no Oracle 19c/21c.
+        Table("alembic_version", MetaData(), Column("version_num", String(32))).drop(engine, checkfirst=True)
         engine.dispose()
     migrar(url)
     application = create_app({"TESTING": True, "DATABASE_URL": url})

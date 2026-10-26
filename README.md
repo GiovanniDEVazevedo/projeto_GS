@@ -1,6 +1,6 @@
 # SafraSmart
 
-Aplicação Python/Flask de apoio à decisão agrícola para soja e milho, com PWA offline-first, histórico persistente e processamento em segundo plano. Os indicadores são experimentais: não representam probabilidade de sucesso, diagnóstico de doença ou recomendação validada de plantio.
+Aplicação Python/Flask de apoio à decisão agrícola para soja e milho, com PWA offline-first, histórico persistente em Oracle Database e processamento em segundo plano. SQLite continua disponível para desenvolvimento local. Os indicadores são experimentais: não representam probabilidade de sucesso, diagnóstico de doença ou recomendação validada de plantio.
 
 ## Executar localmente
 
@@ -24,17 +24,19 @@ Em outro terminal, ative o mesmo ambiente e execute:
 python -m safrasmart.worker
 ```
 
-Abra http://localhost:5000. Sem configurar `DATABASE_URL`, usa SQLite em `instance/safrasmart.db`. A API recebe/persiste solicitações; o worker precisa estar ativo para gerar resultados. O menu de terminal continua disponível com `python menu.py`; análises diretas pelo terminal não entram no histórico web.
+Abra http://localhost:5000. Sem configurar `DATABASE_URL` nem os campos `ORACLE_*`, usa SQLite em `instance/safrasmart.db`. A API recebe/persiste solicitações; o worker precisa estar ativo para gerar resultados. O menu de terminal continua disponível com `python menu.py`; análises diretas pelo terminal não entram no histórico web.
 
-## Conectar PostgreSQL
+## Conectar Oracle Database
 
-Crie um banco vazio no provedor escolhido. No `.env`, configure a conexão fornecida por ele:
+No `.env`, informe os dados do seu usuário/schema e o serviço do banco (Oracle 19c+, XE 21c ou Free):
 
 ```dotenv
-DATABASE_URL=postgresql+psycopg://usuario:senha@host:5432/safrasmart?sslmode=require
+ORACLE_USER=safrasmart
+ORACLE_PASSWORD='sua_senha'
+ORACLE_DSN=localhost:1521/FREEPDB1
 ```
 
-Use os dados reais do provedor; codifique caracteres especiais da senha na URL. URLs iniciadas por `postgres://` e `postgresql://` também são aceitas pela configuração de ambiente. Não publique `.env` nem chaves de serviço.
+Use o host e o serviço reais fornecidos pelo administrador ou pela FIAP. Também é possível usar `DATABASE_URL=oracle+oracledb://usuario:senha@host:1521?service_name=SERVICO`; essa variável tem precedência sobre os campos separados. O driver usa Thin mode, sem Oracle Instant Client. Veja o [guia Oracle](docs/ORACLE.md) para wallet/Oracle Cloud, permissões e validação.
 
 Aplique as migrações antes de iniciar API e worker:
 
@@ -42,7 +44,9 @@ Aplique as migrações antes de iniciar API e worker:
 python -m safrasmart.db upgrade
 ```
 
-API e worker precisam compartilhar a mesma `DATABASE_URL`. A migração cria propriedades, safras, análises e cache, com índices, chaves estrangeiras e restrições de idempotência. Trocar a URL não transfere os dados de um SQLite existente para PostgreSQL; faça uma migração dos dados separadamente se precisar conservar esse histórico.
+API e worker precisam compartilhar a mesma configuração. A migração cria propriedades, safras, análises e cache, com índices, chaves estrangeiras e restrições de idempotência. No Oracle, os documentos usam CLOB com validação `IS JSON`. Trocar a conexão não transfere dados existentes entre bancos; a transferência deve ser feita separadamente se houver histórico a conservar.
+
+Para conferir as migrações sem conectar, use `python -m safrasmart.db upgrade --sql` com a conexão Oracle configurada. Instalações que continuam em PostgreSQL devem instalar `requirements-postgres.txt` para obter o driver opcional.
 
 Em Linux, para servir a API em produção:
 
@@ -92,4 +96,4 @@ npm test
 
 A suíte Python usa banco SQLite temporário e bloqueia chamadas meteorológicas externas. Cobre persistência, migrações, concorrência, isolamento entre dispositivos, validação, worker, lacunas climáticas e interpretação de observações. Os testes JavaScript verificam a fila diante de falhas parciais, respostas perdidas e reenvios.
 
-Para testar com PostgreSQL, use `TEST_DATABASE_URL` **exclusivamente em um banco descartável**: a fixture remove e recria tabelas. Não aponte para produção.
+Os testes Oracle locais verificam configuração, serialização e SQL gerado; não validam uma instância real. Para testar com Oracle/PostgreSQL, use `TEST_DATABASE_URL` **exclusivamente em um schema descartável** e autorize com `TEST_ALLOW_DATABASE_RESET=1`: a fixture remove e recria tabelas. Nunca aponte para produção. Consulte os comandos no [guia Oracle](docs/ORACLE.md).

@@ -9,7 +9,6 @@ from datetime import datetime
 from sqlalchemy.exc import SQLAlchemyError
 
 from .cache import CacheAnalitico
-from .config import database_url
 from .db import criar_engine
 from .repositorio import Repositorio
 
@@ -68,7 +67,8 @@ def processar_um(repo, executar=None):
         return False
     inicio = time.monotonic()
     try:
-        resultado = (executar or (lambda dados: executar_isolado(dados, database_url())))(job["entrada"])
+        # Não reavaliar o ambiente: usar a mesma conexão configurada na fila.
+        resultado = (executar or (lambda dados: executar_isolado(dados, repo.engine.url)))(job["entrada"])
     except Exception:
         log.exception("analise_falhou id=%s tentativa=%s", job["id"], job["tentativas"])
         repo.finalizar(job, erro="Não foi possível concluir a análise. Uma nova tentativa será feita até o limite de 3.")

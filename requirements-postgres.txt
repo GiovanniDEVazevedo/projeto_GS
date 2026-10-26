@@ -1,0 +1,3 @@
+# Somente para instalações existentes que continuam usando PostgreSQL.
+-r requirements.txt
+psycopg[binary]==3.3.6
