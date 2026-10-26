@@ -4,17 +4,17 @@ from datetime import date, datetime, timedelta
 from uuid import uuid4
 
 from .modelos import tipo_cultura, data_plantio, tipo_irrigacao, tipo_solo, prod_anterior, obs_user
-from .clima import buscar_dados_meteo, coordenadas, hoje_local
+from .clima import buscar_dados_meteo, coordenadas, cobertura_completa, hoje_local
 from .indices import resumo_climatico, recortar_periodo
 from .observacao import analisar_obs
 from .regras import fase_atual, obter_tabela
-from .scores import score_clima, score_geral, score_historico, score_risco, score_solo
+from .scores import indisponivel, score_clima, score_geral, score_historico, score_risco, score_solo
 from .recomendador import recomendar
 from .validacao import validar
 from .credenciais_gee import gee_configurado
 
 log = logging.getLogger(__name__)
-VERSAO_MOTOR = "2.0.0"
+VERSAO_MOTOR = "2.0.1"
 
 
 def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
@@ -46,17 +46,21 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
     }
     dados_clima = None
     janela = None
-    parametros = {"tipo": "clima-v2", "lat": lat, "lon": lon, "dias": 365, "fim": fim.isoformat()}
+    parametros = {"tipo": "clima-v3-cobertura", "lat": lat, "lon": lon, "dias": 365,
+                  "inicio_necessario": inicio_janela.isoformat(), "fim": fim.isoformat()}
     try:
-        calcular = lambda: buscar_dados_meteo(lat, lon, fim=fim)
-        dados_clima = cache.obter_ou_calcular(parametros, calcular) if cache else calcular()
+        calcular = lambda: buscar_dados_meteo(lat, lon, fim=fim, inicio_necessario=inicio_janela)
+        dados_clima = cache.obter_ou_calcular(parametros, calcular,
+            cachear=lambda dados: cobertura_completa(dados, inicio_janela, fim)) if cache else calcular()
         if dados_clima:
             resumo = resumo_climatico(dados_clima)
             resultado["clima"] = {"total_dias": len(dados_clima["datas"]), "temp_media": resumo["temp_media_geral"],
                                   "precip_total": resumo["precip_total"], "fonte": dados_clima["fonte"],
                                   "precip_completa": resumo["precip_completa"],
                                   "periodo_inicio": resumo["periodo_inicio"], "periodo_fim": resumo["periodo_fim"],
-                                  "consultado_em": dados_clima.get("consultado_em")}
+                                  "consultado_em": dados_clima.get("consultado_em"),
+                                  "fontes_utilizadas": dados_clima.get("fontes_utilizadas", [dados_clima["fonte"]]),
+                                  "tentativas_fontes": dados_clima.get("tentativas_fontes", [])}
             janela = recortar_periodo(dados_clima, inicio_janela, fim)
             resultado["indices"] = resumo_climatico(janela)
         else:
@@ -88,7 +92,14 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
             resultado["erros"].append("NDVI não configurado: defina GEE_SERVICE_ACCOUNT_JSON ou GEE_KEY_PATH no .env.")
 
     indices = resultado["indices"]
-    sc_clima = score_clima(janela, indices, referencia) if dias >= 0 else score_clima(None, {}, {})
+    if dias < 0:
+        sc_clima = indisponivel("A data de plantio informada está no futuro. O histórico climático não permite avaliar uma fase que ainda não começou nem definir sozinho a melhor data de plantio.", "PLANTIO_FUTURO")
+    elif dias == 0:
+        sc_clima = indisponivel("O plantio foi informado como hoje. Ainda não há dias completos após o plantio para esta análise. Confira se essa é a data real da sua lavoura.", "PLANTIO_HOJE")
+    else:
+        sc_clima = score_clima(janela, indices, referencia)
+    if sc_clima["valor"] is None:
+        resultado["erros"].append(sc_clima["detalhes"]["motivo"])
     parciais = {"clima": sc_clima, "solo": score_solo(solo, irrigacao),
                 "historico": score_historico(prod_ant, lat, lon, cultura, solo, irrigacao),
                 "risco": score_risco(resultado["observacao"], indices,

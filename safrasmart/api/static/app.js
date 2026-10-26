@@ -235,7 +235,6 @@ async function iniciar() {
             }
         }
         if (local) await definirLocalizacao(local.lat, local.lon, local.fonte, local.accuracy);
-        $('dataPlantio').value = new Date().toLocaleDateString('en-CA');
         await atualizarHistorico();
         $('btnAnalisar').disabled = false;
         if ('serviceWorker' in navigator) {

@@ -137,7 +137,8 @@
         <option value="milho">Milho</option>
     </select>
     <label>Data de Plantio</label>
-    <input type="date" id="dataPlantio">
+    <input type="date" id="dataPlantio" required aria-describedby="dataPlantioAjuda">
+    <p id="dataPlantioAjuda" class="fase-info">Informe a data real do plantio. Se foi hoje, ainda não há dias completos para avaliar o desenvolvimento da lavoura.</p>
     <label>Tipo de Solo</label>
     <select id="solo">
         <option value="argiloso">Argiloso</option>

@@ -5,18 +5,32 @@ from .regras import faixa_com_tolerancia
 PESOS = {"clima": .4, "solo": .2, "historico": .2, "risco": .2}
 
 
-def indisponivel(motivo):
-    return {"valor": None, "confianca": "baixa", "status": "SEM_DADOS", "detalhes": {"motivo": motivo}}
+def indisponivel(motivo, codigo="DADOS_INDISPONIVEIS", **detalhes):
+    return {"valor": None, "confianca": "baixa", "status": "SEM_DADOS",
+            "detalhes": {"motivo": motivo, "codigo": codigo, **detalhes}}
 
 
 def score_clima(dados_climaticos, resumo_indices, fase):
-    if not dados_climaticos or not fase:
-        return indisponivel("Sem dados climáticos ou referência da fase.")
+    if not dados_climaticos:
+        return indisponivel("As fontes climáticas não forneceram dados utilizáveis. Verifique os avisos e a conexão do servidor com as APIs de clima.", "CLIMA_INDISPONIVEL")
+    if not fase:
+        return indisponivel("Sem referência para a fase da cultura.", "REFERENCIA_INDISPONIVEL")
     resumo = resumo_climatico(dados_climaticos)
     n = resumo.get("dias_esperados", 0)
     # Não extrapolar chuva de dias faltantes. Comparação requer janela completa.
-    if n < 7 or resumo.get("cobertura_temperatura", 0) < .8 or not resumo.get("precip_completa"):
-        return indisponivel("Janela com menos de 7 dias ou cobertura insuficiente; chuva não foi extrapolada.")
+    if n < 7:
+        return indisponivel(f"A janela da fase estimada tem {n} dia(s) completo(s). Este índice experimental exige ao menos 7 dias na janela; os indicadores disponíveis continuam no relatório.",
+                           "JANELA_CURTA", dias_janela=n)
+    motivos = []
+    if resumo.get("cobertura_temperatura", 0) < .8:
+        motivos.append(f"temperatura disponível em {resumo.get('dias_validos_temperatura', 0)} de {n} dias (mínimo de 80%)")
+    if not resumo.get("precip_completa"):
+        motivos.append(f"chuva disponível em {resumo.get('dias_validos_precipitacao', 0)} de {n} dias (exigido período completo)")
+    if motivos:
+        return indisponivel("Cobertura insuficiente: " + "; ".join(motivos) + ". Valores ausentes não foram substituídos por zero.",
+                           "COBERTURA_INSUFICIENTE", dias_janela=n,
+                           cobertura_temperatura=resumo.get("cobertura_temperatura", 0),
+                           cobertura_precipitacao=resumo.get("cobertura_precipitacao", 0))
     temp = resumo["temp_media_geral"]
     precip_total = resumo["precip_total"]
     precip_30dias = precip_total * 30 / n
@@ -82,7 +96,10 @@ def score_geral(scores):
     validos = {k: v for k, v in (scores or {}).items() if v and v.get("valor") is not None}
     # Exigir clima válido evita que um texto positivo produza recomendação sozinho.
     if "clima" not in validos:
-        return {**indisponivel("Dados climáticos insuficientes para síntese."), "classificacao": classificar(None), "scores": {}}
+        detalhes = ((scores or {}).get("clima") or {}).get("detalhes", {})
+        return {**indisponivel(detalhes.get("motivo", "Dados climáticos insuficientes para síntese."),
+                              detalhes.get("codigo", "CLIMA_INDISPONIVEL")),
+                "classificacao": classificar(None), "scores": {}}
     peso = sum(PESOS[k] for k in validos)
     valor = round(sum(v["valor"] * PESOS[k] for k, v in validos.items()) / peso, 1)
     return {"valor": valor, "classificacao": classificar(valor), "status": codigo(valor), "confianca": "baixa",

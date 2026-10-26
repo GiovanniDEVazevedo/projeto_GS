@@ -62,6 +62,26 @@ Na versão atual, `python -m safrasmart.api.server` e `menu.py` iniciam o worker
 
 Consultas externas têm limite por análise e até três tentativas. Ao desligar normalmente o servidor local, uma análise em execução é interrompida e devolvida à fila sem consumir uma tentativa. Em quedas abruptas, continua valendo a recuperação por lease. Não foram validados automaticamente os serviços externos nem a instância que roda no computador do usuário.
 
+## Quando aparece “Dados insuficientes”
+
+Essa mensagem é um resultado da análise, não significa que ela continua processando. A síntese e os avisos agora mostram o motivo específico:
+
+| Motivo | Significado |
+| --- | --- |
+| `PLANTIO_HOJE` | Ainda não há dias completos após o plantio informado. Confira a data real. |
+| `PLANTIO_FUTURO` | O histórico não permite avaliar uma fase futura nem definir sozinho a janela de plantio. |
+| `JANELA_CURTA` | Há menos de 7 dias completos na janela da fase estimada, limite do índice experimental. |
+| `COBERTURA_INSUFICIENTE` | Faltam dias de temperatura ou chuva; o relatório informa quantos estão disponíveis. |
+| `CLIMA_INDISPONIVEL` | Nenhuma fonte climática forneceu dados utilizáveis; verificar conexão, timeouts e HTTP nos logs do servidor/worker. |
+
+O formulário não preenche mais a data de hoje automaticamente. Informe a data real: alterar a data apenas para obter uma classificação muda o período analisado e invalida a interpretação.
+
+Se o histórico vier incompleto na janela necessária, o backend tenta fontes alternativas e registra a origem de cada dia, sem transformar lacunas em zero. Consultas recentes podem usar o histórico de modelos do Forecast API para preencher dias ainda indisponíveis no arquivo. Esses registros continuam identificados como dados meteorológicos de modelo. Dados parciais não ficam bloqueando novas consultas no cache por seis horas.
+
+A falta de NDVI, isoladamente, não impede uma síntese climática com cobertura suficiente. A chave Earth Engine não autentica as APIs de clima. Resultados já salvos não são recalculados automaticamente: após atualizar o código, salve uma nova análise para usar as correções.
+
+Referência sobre histórico e dados recentes: https://open-meteo.com/en/docs/historical-weather-api
+
 ## Funcionamento offline
 
 Abra a aplicação uma vez com internet em HTTPS ou localhost e aguarde o service worker instalar. Cadastros são gravados primeiro no IndexedDB, com UUID; apenas confirmações individuais de persistência encerram o reenvio. Falhas parciais, servidor inacessível e resposta perdida preservam o registro. Resultados recebidos ficam disponíveis no dispositivo.

@@ -51,7 +51,16 @@ def alinhar_calendario(dados, inicio, fim):
     return saida if any(v is not None for v in saida["temp_max"] + saida["precip"]) else None
 
 
-def buscar_dados_meteo(lat, lon, dias=365, fim=None):
+def cobertura_completa(dados, inicio, fim):
+    if not dados or inicio > fim:
+        return False
+    indices = [i for i, d in enumerate(dados["datas"]) if inicio.isoformat() <= d <= fim.isoformat()]
+    return bool(indices) and len(indices) == (fim - inicio).days + 1 and all(
+        i < len(dados.get(c, [])) and valor_valido(dados[c][i], c == "precip") is not None
+        for i in indices for c in ("temp_max", "temp_min", "precip"))
+
+
+def buscar_dados_meteo(lat, lon, dias=365, fim=None, inicio_necessario=None):
     if not 1 <= dias <= 366:
         raise ValueError("dias deve estar entre 1 e 366")
     fim = fim or hoje_local() - timedelta(days=1)
@@ -59,15 +68,45 @@ def buscar_dados_meteo(lat, lon, dias=365, fim=None):
         fim = fim.date()
     fim = min(fim, hoje_local() - timedelta(days=1))
     inicio = fim - timedelta(days=dias - 1)
-    fontes = [lambda: _tentar_archive_api(lat, lon, inicio, fim),
-              lambda: _tentar_nasa_api(lat, lon, inicio, fim)]
+    # Avaliar a janela usada pela análise, não apenas a existência de algum
+    # registro no ano. Uma reanálise pode ter dias recentes ainda indisponíveis.
+    necessario = max(inicio, min(inicio_necessario or fim - timedelta(days=29), fim))
+    fontes = [("Open-Meteo Archive", lambda: _tentar_archive_api(lat, lon, inicio, fim))]
     if fim >= hoje_local() - timedelta(days=92):
-        fontes.append(lambda: _tentar_forecast_api(lat, lon))
-    for buscar in fontes:
-        dados = alinhar_calendario(buscar(), inicio, fim)
-        if dados:
-            return dados
-    return None
+        fontes.append(("Open-Meteo Forecast", lambda: _tentar_forecast_api(lat, lon)))
+    fontes.append(("NASA POWER", lambda: _tentar_nasa_api(lat, lon, inicio, fim)))
+    resultado = None
+    tentativas = []
+    campos = ("temp_max", "temp_min", "precip")
+    for nome, buscar in fontes:
+        try:
+            dados = alinhar_calendario(buscar(), inicio, fim)
+        except (ValueError, KeyError, TypeError, IndexError, AttributeError):
+            log.warning("Calendário meteorológico inválido: %s", nome)
+            dados = None
+        tentativas.append({"fonte": nome, "status": "recebido" if dados else "indisponivel"})
+        if not dados:
+            continue
+        if resultado is None:
+            resultado = {**dados, "fonte_por_dia": [dados["fonte"] if any(dados[c][i] is not None for c in campos) else None
+                                                   for i in range(len(dados["datas"]))]}
+        else:
+            for i in range(len(dados["datas"])):
+                antigos = sum(resultado[c][i] is not None for c in campos)
+                novos = sum(dados[c][i] is not None for c in campos)
+                if novos > antigos:
+                    # Usar uma fonte por dia, sem misturar máxima de um modelo
+                    # com mínima de outro nem somar chuvas de fontes diferentes.
+                    for campo in campos:
+                        resultado[campo][i] = dados[campo][i]
+                    resultado["fonte_por_dia"][i] = dados["fonte"]
+        if cobertura_completa(resultado, necessario, fim):
+            break
+    if resultado:
+        resultado["fontes_utilizadas"] = list(dict.fromkeys(f for f in resultado["fonte_por_dia"] if f))
+        resultado["fonte"] = " + ".join(resultado["fontes_utilizadas"])
+        resultado["tentativas_fontes"] = tentativas
+    return resultado
 
 
 def _consultar(url, params, fonte, nasa=False):
@@ -83,8 +122,10 @@ def _consultar(url, params, fonte, nasa=False):
         for chave, original in [("temp_max", "T2M_MAX"), ("temp_min", "T2M_MIN"), ("precip", "PRECTOTCORR")]:
             saida[chave] = [valor_valido(parametros.get(original, {}).get(d), chave == "precip") for d in datas]
         return saida
-    except (requests.RequestException, ValueError, KeyError, TypeError, AttributeError):
-        log.warning("Fonte meteorológica indisponível: %s", fonte)
+    except (requests.RequestException, ValueError, KeyError, TypeError, AttributeError) as erro:
+        resposta_erro = getattr(erro, "response", None)
+        codigo = getattr(resposta_erro, "status_code", None)
+        log.warning("Fonte meteorológica indisponível: %s (HTTP %s; %s)", fonte, codigo or "sem resposta", type(erro).__name__)
         return None
 
 
