@@ -20,3 +20,17 @@ def test_cache_reutiliza_e_expira(app):
     assert len(chamadas) == 2
     cache.obter_ou_calcular({'lat': 1, 'fim': '2026-10-02'}, calcular)
     assert len(chamadas) == 3
+
+
+def test_cache_nao_congela_resposta_parcial(app):
+    repo = app.extensions['repo']
+    cache = CacheAnalitico(repo)
+    chamadas = []
+    def calcular():
+        chamadas.append(1)
+        return {'completo': len(chamadas) >= 2}
+    criterio = lambda r: r['completo']
+    assert cache.obter_ou_calcular({'tipo': 'teste'}, calcular, cachear=criterio) == {'completo': False}
+    assert cache.obter_ou_calcular({'tipo': 'teste'}, calcular, cachear=criterio) == {'completo': True}
+    assert cache.obter_ou_calcular({'tipo': 'teste'}, calcular, cachear=criterio) == {'completo': True}
+    assert len(chamadas) == 2

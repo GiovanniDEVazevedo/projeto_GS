@@ -125,6 +125,8 @@ class Repositorio:
                            disponivel_em=agora() + timedelta(seconds=30 * 2 ** min(job["tentativas"], 5)))
         else:
             valores.update(status="ok", resultado=resultado)
+            if isinstance(resultado, dict) and resultado.get("metadata", {}).get("versao_motor"):
+                valores["versao_motor"] = resultado["metadata"]["versao_motor"]
         with self.session.begin() as s:
             r = s.execute(update(Analise).where(Analise.id == job["id"], Analise.lease_token == job["token"])
                           .values(**valores))

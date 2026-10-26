@@ -47,7 +47,8 @@ def recomendar(scores, alertas_obs, resumo_indices):
     unicos = {(a["tipo"], a["origem"]): a for a in alertas}
     alertas = list(unicos.values())
     if status == "SEM_DADOS":
-        nivel, texto = "Dados insuficientes", "Não há evidência climática suficiente para sintetizar as condições. Os relatos continuam disponíveis para verificação."
+        nivel = "Dados insuficientes"
+        texto = geral.get("detalhes", {}).get("motivo") or "Não há evidência climática suficiente para sintetizar as condições. Os relatos continuam disponíveis para verificação."
     elif alertas:
         status = "ATENCAO" if status == "FAVORAVEL" else status
         nivel, texto = "Atenção às evidências", "Existem ocorrências que precisam ser verificadas no campo. Consulte as justificativas e os períodos analisados."
