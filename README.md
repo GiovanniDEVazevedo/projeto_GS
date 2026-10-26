@@ -88,6 +88,24 @@ A falta de NDVI, isoladamente, não impede uma síntese climática com cobertura
 
 Referência sobre histórico e dados recentes: https://open-meteo.com/en/docs/historical-weather-api
 
+## Dashboard e colheita
+
+A interface tem três áreas: **Visão geral**, **Nova análise** e **Histórico**. O dashboard mostra temperatura, chuva, NDVI, fase fenológica, cobertura das fontes e barras dos índices experimentais. Verde significa favorável (nota ≥ 7), amarelo atenção (≥ 5) e vermelho desfavorável (< 5). Dados ausentes aparecem em cinza, sem nota. Cobertura, progresso de calendário e NDVI não são classificados como saúde da lavoura.
+
+No cadastro, informe a **data real da colheita**, se ela já ocorreu. Se o campo ficar vazio, o modal pergunta se você ainda não colheu:
+
+- **Ainda não colhi**: salva essa confirmação e apresenta a faixa de maturação do calendário fenológico para orientar a avaliação da colheita.
+- **Já colhi**: volta ao campo para informar a data antes de salvar.
+- **Voltar** ou `Esc`: cancela o envio e conserva o formulário.
+
+Datas anteriores ao plantio ou futuras são rejeitadas. Com uma colheita registrada, a fase é avaliada na data informada e as consultas de clima e satélite terminam antes dela, também respeitando o limite do ciclo estimado. A data e a confirmação ficam no JSON persistido de cada análise, sem exigir nova migração do banco. Alterar a colheita cria uma nova análise; não sobrescreve o histórico.
+
+**A faixa exibida é uma referência de maturação, não uma data ótima de operação.** O protótipo usa o último intervalo das tabelas genéricas: soja, dias 90–119; milho para grãos, dias 105–139 após o plantio. São parâmetros experimentais herdados, sem calibração por cultivar e região. Ao ultrapassar a faixa, o painel pede revisão em campo; nunca presume que houve colheita nem avança as datas indefinidamente. Resultados antigos continuam acessíveis, mas precisam de uma nova análise para incluir esse planejamento.
+
+O ponto de colheita depende do estádio observado, da umidade dos grãos, do manejo e das condições operacionais. A aplicação não mede umidade nem escolhe dias pela previsão meteorológica. As orientações para conferir em campo usam referências da [Embrapa para soja](https://www.infoteca.cnptia.embrapa.br/handle/doc/979883) e [milho](https://www.infoteca.cnptia.embrapa.br/handle/doc/241208); essas fontes não validam os intervalos de dias do protótipo.
+
+O visual segue uma inspiração nas [Human Interface Guidelines da Apple](https://developer.apple.com/design/human-interface-guidelines/): hierarquia tipográfica, superfícies claras, navegação compacta e adaptação ao celular. Usa fontes do sistema e recursos locais, incluindo os novos estilos e componentes no cache offline.
+
 ## Funcionamento offline
 
 Abra a aplicação uma vez com internet em HTTPS ou localhost e aguarde o service worker instalar. Cadastros são gravados primeiro no IndexedDB, com UUID; apenas confirmações individuais de persistência encerram o reenvio. Falhas parciais, servidor inacessível e resposta perdida preservam o registro. Resultados recebidos ficam disponíveis no dispositivo.
@@ -132,6 +150,15 @@ python -m pytest -q
 npm test
 ```
 
-A suíte Python usa banco SQLite temporário e bloqueia chamadas meteorológicas externas. Cobre persistência, migrações, concorrência, isolamento entre dispositivos, validação, worker, lacunas climáticas e interpretação de observações. Os testes JavaScript verificam a fila diante de falhas parciais, respostas perdidas e reenvios.
+A suíte Python usa banco SQLite temporário e bloqueia chamadas meteorológicas externas. Cobre persistência, migrações, concorrência, isolamento entre dispositivos, validação, worker, lacunas climáticas, interpretação de observações e as regras de colheita. Os testes JavaScript verificam a fila diante de falhas parciais, respostas perdidas e reenvios, além de cores, notas ausentes e séries NDVI.
+
+Para conferir os fluxos no navegador, com as dependências de desenvolvimento instaladas:
+
+```bash
+python -m playwright install chromium
+python tests/e2e_dashboard.py
+```
+
+Esse teste inicia um servidor local e um SQLite temporário. Usa fixtures identificadas para clima e satélite, exercita IndexedDB, modal, datas, histórico, gráficos, visualização no celular, abertura offline e reconexão. Salva capturas em `test-results/`. Não comprova o acesso real às APIs externas. `--browser-config arquivo.json` permite usar um Chromium já instalado, com `path` e `args` no JSON; isso é apenas uma opção de teste.
 
 Para testar com PostgreSQL, use `TEST_DATABASE_URL` **exclusivamente em um banco descartável**: a fixture remove e recria tabelas. Não aponte para produção.

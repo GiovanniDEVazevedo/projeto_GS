@@ -59,6 +59,7 @@ def _filho(canal, url, dados):
         resultado = analisar(lat=dados["lat"], lon=dados["lon"], cultura=dados["cultura"],
             data_plantio_dt=datetime.fromisoformat(dados["data_plantio"]), solo=dados["solo"],
             irrigacao=dados["irrigacao"], prod_ant=dados["prod_ant"], observacoes=dados["observacoes"],
+            data_colheita=dados.get("data_colheita"), colheita_realizada=dados.get("colheita_realizada"),
             usar_ndvi=booleano_env("ENABLE_NDVI", True),
             cache=CacheAnalitico(Repositorio(engine)))
         canal.send({"resultado": resultado})

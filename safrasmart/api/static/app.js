@@ -1,5 +1,6 @@
 import * as storage from './storage.js';
 import {criarSincronizador, mensagemDaAnalise} from './sync.js';
+import {renderizarDashboard, formatarData} from './dashboard.js';
 
 const $ = id => document.getElementById(id);
 let token;
@@ -10,7 +11,29 @@ let intervalo = 15000;
 let timer;
 let atualizando = false;
 let processamentoDisponivel = null;
+let salvando = false;
+let resultadoExibido;
 const mensagem = texto => { $('mensagem').textContent = texto; };
+
+function mostrarView(nome, focar = true) {
+    const views = {dashboard: ['viewDashboard', 'dashboardTitulo'], cadastro: ['viewCadastro', 'cadastroTitulo'], historico: ['viewHistorico', 'historicoTitulo']};
+    if (!views[nome]) return;
+    for (const [chave, [id]] of Object.entries(views)) $(id).hidden = chave !== nome;
+    for (const botao of document.querySelectorAll('nav [data-view]')) {
+        botao.classList.toggle('active', botao.dataset.view === nome);
+        if (botao.dataset.view === nome) botao.setAttribute('aria-current', 'page');
+        else botao.removeAttribute('aria-current');
+    }
+    if (focar) { $(views[nome][1]).focus({preventScroll: true}); window.scrollTo({top: 0, behavior: 'auto'}); }
+}
+
+function mostrarPendente(registro) {
+    $('resultado').hidden = true;
+    $('emptyDashboard').hidden = false;
+    $('emptyTitulo').textContent = ['erro', 'invalido', 'conflito'].includes(registro.estado) ? 'Seus dados estão preservados.' : 'Sua análise está a caminho.';
+    $('emptyTexto').textContent = mensagemDaAnalise(registro, processamentoDisponivel);
+    $('dashboardSubtitulo').textContent = `${registro.dados.propriedade || 'Lavoura'} · ${registro.dados.cultura.toUpperCase()} · Plantio em ${formatarData(registro.dados.data_plantio)}`;
+}
 
 async function request(url, options = {}) {
     const response = await fetch(url, {...options, cache: 'no-store', signal: AbortSignal.timeout(12000),
@@ -64,108 +87,130 @@ async function atualizarHistorico() {
     const processando = registros.filter(r => r.sincronizado && ['pendente', 'processando'].includes(r.estado)).length;
     $('filaInfo').textContent = `${registros.length} registro(s) salvo(s). ${pendentes} aguardando envio/revisão. ${processando} aguardando análise.`;
     $('historicoLista').replaceChildren();
+    if (!registros.length) $('historicoLista').append(textoElemento('p', 'Suas análises aparecerão aqui. Crie a primeira para começar.', 'history-empty'));
     for (const registro of registros) {
         const nomes = {pendente: registro.sincronizado ? 'Na fila do servidor' : 'Salvo no dispositivo',
             processando: 'Em análise', ok: 'Resultado disponível', erro: 'Falha no processamento',
-            invalido: 'Revisar dados', conflito: 'Conflito: crie uma nova análise'};
-        const botao = textoElemento('button', `${registro.dados.propriedade || 'Propriedade'} · ${registro.dados.cultura} · ${nomes[registro.estado] || registro.estado}`, 'historico-item');
+            invalido: 'Revisar dados', conflito: 'Criar nova análise'};
+        const botao = textoElemento('button', '', 'history-item');
+        botao.type = 'button';
+        const copy = textoElemento('span', '');
+        copy.append(textoElemento('strong', registro.dados.propriedade || 'Propriedade'),
+            textoElemento('small', `${registro.dados.cultura.toUpperCase()} · Plantio: ${formatarData(registro.dados.data_plantio)} · ${registro.dados.data_colheita ? 'Colheita: ' + formatarData(registro.dados.data_colheita) : registro.dados.colheita_realizada === false ? 'Ainda não colhida' : 'Colheita não informada'}`));
+        const tom = registro.estado === 'ok' ? 'info' : ['erro', 'invalido', 'conflito'].includes(registro.estado) ? 'warning' : 'neutral';
+        botao.append(copy, textoElemento('span', nomes[registro.estado] || registro.estado, 'status-pill ' + tom));
         botao.addEventListener('click', () => {
             selecionada = registro.id;
             preencherFormulario(registro.dados);
-            if (registro.resultado) exibirResultado(registro.resultado);
-            else { $('resultado').style.display = 'none'; mensagem(mensagemDaAnalise(registro, processamentoDisponivel)); }
+            if (registro.resultado) { exibirResultado(registro.resultado, false, registro.dados); mensagem(''); }
+            else { mostrarPendente(registro); mensagem(mensagemDaAnalise(registro, processamentoDisponivel)); }
+            mostrarView('dashboard');
         });
         $('historicoLista').append(botao);
     }
+    // Ao reabrir, apresentar o registro mais recente. Análises sem resultado não
+    // reutilizam o dashboard de outra lavoura.
+    if (!selecionada && registros.length) selecionada = registros[0].id;
     if (selecionada) {
         const atual = registros.find(r => r.id === selecionada);
-        if (atual?.resultado) exibirResultado(atual.resultado, false);
-        else if (atual) mensagem(mensagemDaAnalise(atual, processamentoDisponivel));
+        if (atual?.resultado) {
+            exibirResultado(atual.resultado, false, atual.dados);
+            if (!$('viewDashboard').hidden) mensagem('');
+        }
+        else if (atual) { mostrarPendente(atual); mensagem(mensagemDaAnalise(atual, processamentoDisponivel)); }
     }
 }
 
 function preencherFormulario(dados) {
     for (const [campo, id] of Object.entries({propriedade: 'propriedade', lat: 'lat', lon: 'lon', cultura: 'cultura',
-        data_plantio: 'dataPlantio', solo: 'solo', irrigacao: 'irrigacao', prod_ant: 'prodAnt', observacoes: 'observacoes'})) {
+        data_plantio: 'dataPlantio', data_colheita: 'dataColheita', solo: 'solo', irrigacao: 'irrigacao', prod_ant: 'prodAnt', observacoes: 'observacoes'})) {
         $(id).value = dados[campo] ?? '';
     }
+    $('dataColheita').required = false;
+    atualizarLimitesDatas();
     origem = dados.origem_localizacao || 'manual';
     precisao = dados.precisao_m ?? null;
 }
 
+function atualizarLimitesDatas() {
+    const hoje = new Date();
+    const isoHoje = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
+    $('dataColheita').max = isoHoje;
+    $('dataColheita').min = $('dataPlantio').value || '1981-01-01';
+    $('dataPlantio').min = '1981-01-01';
+    $('dataPlantio').max = `${hoje.getFullYear() + 2}-12-31`;
+}
+
+function confirmarColheita() {
+    const modal = $('colheitaModal');
+    return new Promise(resolve => {
+        modal.returnValue = '';
+        modal.addEventListener('close', () => resolve(modal.returnValue), {once: true});
+        modal.showModal();
+    });
+}
+
 async function enviarAnalise() {
-    const lat = Number($('lat').value);
-    const lon = Number($('lon').value);
-    if (!$('lat').value || !$('lon').value || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+    if (salvando) return;
+    atualizarLimitesDatas();
+    if (!$('analiseForm').reportValidity()) return;
+    const lat = Number($('lat').value), lon = Number($('lon').value);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
         mensagem('Informe latitude e longitude válidas da propriedade.'); return;
     }
-    if (!$('dataPlantio').value || !$('dataPlantio').validity.valid) { mensagem('Informe a data do plantio.'); return; }
     const prod = $('prodAnt').value === '' ? null : Number($('prodAnt').value);
     if (prod !== null && (!Number.isFinite(prod) || prod < 0 || prod > 1000)) { mensagem('Produtividade anterior: use de 0 a 1000 sc/ha.'); return; }
+    salvando = true;
     $('btnAnalisar').disabled = true;
-    $('loading').style.display = 'block';
-    $('resultado').style.display = 'none';
     try {
+        if (!$('dataColheita').value) {
+            const resposta = await confirmarColheita();
+            if (resposta === 'informar_data') {
+                mensagem('Informe a data real em que a colheita foi realizada para continuar.');
+                $('dataColheita').focus();
+                return;
+            }
+            if (resposta !== 'nao_realizada') {
+                $('btnAnalisar').disabled = false;
+                $('btnAnalisar').focus();
+                return;
+            }
+        }
+        $('loading').hidden = false;
         const id = crypto.randomUUID();
         const dados = {id, lat, lon, propriedade: $('propriedade').value.trim() || 'Minha propriedade',
             cultura: $('cultura').value, data_plantio: $('dataPlantio').value, solo: $('solo').value,
+            data_colheita: $('dataColheita').value || null, colheita_realizada: Boolean($('dataColheita').value),
             irrigacao: $('irrigacao').value, prod_ant: prod, observacoes: $('observacoes').value,
             origem_localizacao: origem, precisao_m: precisao};
         await storage.salvar({id, dados, estado: 'pendente', sincronizado: false,
             criado_em: new Date().toISOString(), resultado: null});
         selecionada = id;
+        $('dataColheita').required = false;
         mensagem('Registro salvo neste dispositivo. Será enviado quando o servidor estiver acessível.');
         await atualizarHistorico();
+        mostrarView('dashboard');
         void sincronizar();
     } catch (error) {
         mensagem('Não foi possível salvar no dispositivo. ' + error.message + ' Mantenha esta página aberta e copie os dados.');
     } finally {
+        salvando = false;
         $('btnAnalisar').disabled = false;
-        $('loading').style.display = 'none';
+        $('loading').hidden = true;
     }
 }
 
-function exibirResultado(r, rolar = true) {
-    $('resultado').style.display = 'block';
-    if (rolar) $('resultado').scrollIntoView({behavior: 'smooth'});
-    const rec = r.recomendacao || {};
-    const principal = rec.recomendacao_principal || {};
-    const status = rec.status || r.scores?.status || 'SEM_DADOS';
-    // Mapeamento exato: DESFAVORAVEL nunca recebe o estilo de FAVORAVEL.
-    const estilos = {FAVORAVEL: 'recomendado', ATENCAO: 'atencao', DESFAVORAVEL: 'nao', SEM_DADOS: 'atencao'};
-    $('scoreGeral').className = 'card score-geral ' + (estilos[status] || 'atencao');
-    $('scoreValor').textContent = principal.nivel || 'Dados insuficientes';
-    $('scoreClassif').textContent = principal.texto || '';
-    $('scoreProb').textContent = rec.limitacao || '';
-    $('scoresParciais').replaceChildren();
-    const ind = r.indices || {};
-    const mostrar = valor => valor === null || valor === undefined ? 'indisponível' : valor;
-    const linhas = [
-        ['Janela de observação', `${ind.periodo_inicio || '—'} a ${ind.periodo_fim || '—'}`],
-        ['Temperatura média', `${mostrar(ind.temp_media_geral)} °C`],
-        ['Chuva observada na janela', `${mostrar(ind.precip_total)} mm${ind.precip_completa ? '' : ' (parcial; há lacunas)'}`],
-        ['Cobertura da temperatura', `${Math.round((ind.cobertura_temperatura || 0) * 100)}% dos dias`],
-        ['Cobertura da chuva', `${Math.round((ind.cobertura_precipitacao || 0) * 100)}% dos dias`],
-        ['Dias secos consecutivos observados', mostrar(ind.dias_consecutivos_secos)],
-    ];
-    for (const [nome, valor] of linhas) {
-        const div = textoElemento('div', nome, 'indicador');
-        div.append(textoElemento('small', String(valor)));
-        $('scoresParciais').append(div);
+function exibirResultado(r, rolar = true, dados = {}) {
+    $('resultado').hidden = false;
+    $('emptyDashboard').hidden = true;
+    // A consulta periódica não deve fechar a tabela NDVI nem remover o foco
+    // quando o resultado persistido continua igual.
+    const assinatura = JSON.stringify([selecionada, r, dados]);
+    if (assinatura !== resultadoExibido) {
+        renderizarDashboard(r, dados);
+        resultadoExibido = assinatura;
     }
-    $('faseInfo').textContent = `${r.fase?.nome_amigavel || 'Indisponível'} · ${r.fase?.dias_apos_plantio ?? '—'} dias. ${r.fase?.limitacao || ''}`;
-    $('climaInfo').textContent = r.clima ? `${r.clima.fonte} · ${r.clima.periodo_inicio} a ${r.clima.periodo_fim}. Contexto: ${r.metadata?.contexto || '—'}.` : 'Dados meteorológicos indisponíveis.';
-    const n = r.ndvi;
-    $('ndviCard').style.display = n ? 'block' : 'none';
-    $('ndviInfo').textContent = n ? `NDVI médio: ${mostrar(n.ndvi_media)}. Máximo: ${mostrar(n.ndvi_max)}. ${n.total_imagens} janela(s) válida(s). ${n.area || ''} Datas das últimas cenas: ${(n.datas || []).join(', ')}.` : '';
-    for (const [card, lista, itens, formatar] of [
-        ['alertasCard', 'alertasLista', rec.alertas_ativos || [], a => `${a.mensagem} [${a.severidade}; ${a.origem}]`],
-        ['acoesCard', 'acoesLista', rec.acoes_recomendadas || [], a => a],
-        ['errosCard', 'errosLista', r.erros || [], a => a],
-    ]) {
-        $(card).style.display = itens.length ? 'block' : 'none';
-        $(lista).replaceChildren(...itens.map(item => textoElemento('div', formatar(item), 'alerta-item')));
-    }
+    if (rolar) { mostrarView('dashboard'); $('resultado').scrollIntoView({behavior: 'smooth'}); }
 }
 
 async function definirLocalizacao(lat, lon, fonte = 'manual', accuracy = null) {
@@ -219,6 +264,7 @@ async function exportar() {
 }
 
 async function iniciar() {
+    atualizarLimitesDatas();
     $('btnAnalisar').disabled = true;
     try {
         if (!window.isSecureContext) throw new Error('Abra por HTTPS ou localhost para salvar e usar o modo offline.');
@@ -245,7 +291,19 @@ async function iniciar() {
     } catch (error) { mensagem('Não foi possível preparar o armazenamento. ' + error.message); }
 }
 
-$('btnAnalisar').addEventListener('click', enviarAnalise);
+$('analiseForm').addEventListener('submit', event => { event.preventDefault(); void enviarAnalise(); });
+$('colheitaModal').addEventListener('keydown', event => {
+    if (event.key !== 'Tab') return;
+    const botoes = [...$('colheitaModal').querySelectorAll('button:not([disabled])')];
+    const primeiro = botoes[0], ultimo = botoes.at(-1);
+    if (event.shiftKey && document.activeElement === primeiro) { event.preventDefault(); ultimo.focus(); }
+    else if (!event.shiftKey && document.activeElement === ultimo) { event.preventDefault(); primeiro.focus(); }
+});
+for (const botao of document.querySelectorAll('[data-view]')) botao.addEventListener('click', event => {
+    event.preventDefault(); mostrarView(botao.dataset.view);
+});
+$('dataPlantio').addEventListener('change', atualizarLimitesDatas);
+$('dataColheita').addEventListener('input', () => { $('dataColheita').required = false; });
 $('syncBtn').addEventListener('click', sincronizar);
 $('exportBtn').addEventListener('click', () => exportar().catch(error => mensagem(error.message)));
 $('gpsBtn').addEventListener('click', capturarGPS);
