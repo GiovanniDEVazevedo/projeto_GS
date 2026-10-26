@@ -110,10 +110,8 @@ def processar_um(repo, executar=None, parar=None):
         return False
     inicio = time.monotonic()
     try:
-        opcoes = {"parar": parar} if parar is not None else {}
-        resultado = (executar or (lambda dados: executar_isolado(dados, repo.engine.url, **opcoes)))(job["entrada"])
-    except ParadaSolicitada:
-        repo.devolver(job)
+        # Não reavaliar o ambiente: usar a mesma conexão configurada na fila.
+        resultado = (executar or (lambda dados: executar_isolado(dados, repo.engine.url)))(job["entrada"])
     except Exception:
         log.exception("analise_falhou id=%s tentativa=%s", job["id"], job["tentativas"])
         repo.finalizar(job, erro="Não foi possível concluir a análise. Uma nova tentativa será feita até o limite de 3.")

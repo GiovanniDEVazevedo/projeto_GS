@@ -9,6 +9,9 @@ depends_on = None
 
 
 def upgrade():
+    # Mantém o DDL existente em SQLite/PostgreSQL. Oracle no SQLAlchemy 2.0
+    # precisa de armazenamento textual; a revisão 0002 acrescenta IS JSON.
+    documento = sa.JSON().with_variant(sa.CLOB(), "oracle")
     op.create_table("propriedades",
         sa.Column("id", sa.String(36), primary_key=True),
         sa.Column("dono", sa.String(64), nullable=False),
@@ -30,7 +33,7 @@ def upgrade():
         sa.Column("dono", sa.String(64), nullable=False),
         sa.Column("safra_id", sa.String(36), sa.ForeignKey("safras.id"), nullable=False),
         sa.Column("assinatura", sa.String(64), nullable=False),
-        sa.Column("entrada", sa.JSON, nullable=False), sa.Column("resultado", sa.JSON),
+        sa.Column("entrada", documento, nullable=False), sa.Column("resultado", documento),
         sa.Column("status", sa.String(20), nullable=False), sa.Column("erro", sa.Text),
         sa.Column("tentativas", sa.Integer, nullable=False),
         sa.Column("disponivel_em", sa.DateTime, nullable=False),
@@ -42,7 +45,7 @@ def upgrade():
     op.create_index("ix_analises_safra_id", "analises", ["safra_id"])
     op.create_index("ix_analises_fila", "analises", ["status", "disponivel_em"])
     op.create_table("cache_dados", sa.Column("chave", sa.String(64), primary_key=True),
-        sa.Column("conteudo", sa.JSON, nullable=False), sa.Column("expira_em", sa.DateTime, nullable=False))
+        sa.Column("conteudo", documento, nullable=False), sa.Column("expira_em", sa.DateTime, nullable=False))
     op.create_index("ix_cache_dados_expira_em", "cache_dados", ["expira_em"])
 
 
