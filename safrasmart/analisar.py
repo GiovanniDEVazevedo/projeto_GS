@@ -1,6 +1,5 @@
 """Pipeline versionado com evidências, cobertura e análise por fase estimada."""
 import logging
-import os
 from datetime import date, datetime, timedelta
 from uuid import uuid4
 
@@ -12,6 +11,7 @@ from .regras import fase_atual, obter_tabela
 from .scores import score_clima, score_geral, score_historico, score_risco, score_solo
 from .recomendador import recomendar
 from .validacao import validar
+from .credenciais_gee import gee_configurado
 
 log = logging.getLogger(__name__)
 VERSAO_MOTOR = "2.0.0"
@@ -66,7 +66,7 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
         resultado["erros"].append("Dados climáticos inválidos ou incompletos.")
 
     if usar_ndvi and plantio < hoje:
-        if os.getenv("GEE_KEY_PATH"):
+        if gee_configurado():
             try:
                 from .ndvi import buscar_ndvi
                 inicio_ndvi = datetime.combine(plantio, datetime.min.time())
@@ -85,7 +85,7 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
                 log.warning("NDVI indisponível")
                 resultado["erros"].append("NDVI indisponível; a análise continua sem dados de vegetação.")
         else:
-            resultado["erros"].append("NDVI não configurado (GEE_KEY_PATH).")
+            resultado["erros"].append("NDVI não configurado: defina GEE_SERVICE_ACCOUNT_JSON ou GEE_KEY_PATH no .env.")
 
     indices = resultado["indices"]
     sc_clima = score_clima(janela, indices, referencia) if dias >= 0 else score_clima(None, {}, {})
