@@ -9,8 +9,8 @@
 #   "sensibilidade": str — "alto", "medio" ou "baixo" (pesos 3/2/1).
 #   "descricao": str — explicacao do que ocorre na fase.
 #
-# Estas tabelas sao baseadas na literatura agronomica brasileira (EMBRAPA,
-# CONAB, IAPAR) para as cultivares mais comuns de soja e milho no Brasil.
+# Parâmetros experimentais herdados do protótipo, sem referência documental
+# suficiente para calibração. Validar por região/cultivar antes de uso agronômico.
 # =============================================================================
 
 FENOLOGIA_SOJA = {
@@ -159,7 +159,7 @@ def fase_atual(cultura, dias_apos_plantio):
         O segundo e o dicionario com todos os parametros da fase.
         
     CASOS ESPECIAIS:
-        - Se dias_apos_plantio < 0 (antes do plantio): retorna "Pre-Platio"
+        - Se dias_apos_plantio < 0 (antes do plantio): retorna "Pre-Plantio"
           com dados genericos para planejamento.
         - Se passou do ciclo total: retorna "Pos-Safra" com tolerancia ampla
           (15-35°C, 0-200mm) para analise historica.
@@ -173,9 +173,9 @@ def fase_atual(cultura, dias_apos_plantio):
     """
     tabela = obter_tabela(cultura)
     if not tabela:
-        return "Cultura desconhecida"
+        raise ValueError("Cultura desconhecida")
     if dias_apos_plantio < 0:
-        return "Pre-Platio", {
+        return "Pre-Plantio", {
             "nome_amigavel": "Pre-Plantio - Periodo de Planejamento",
             "dias": (dias_apos_plantio, 0),
             "temp_ideal": (20, 30),
@@ -186,16 +186,16 @@ def fase_atual(cultura, dias_apos_plantio):
         }
     for nome_fase, dados in tabela.items():
         inicio, fim = dados["dias"]
-        if inicio <= dias_apos_plantio <= fim:
+        if inicio <= dias_apos_plantio < fim:
             return nome_fase, dados
     return "Pos-Safra", {
-        "nome_amigavel": "Pos-Safra — Ciclo encerrado",
+        "nome_amigavel": "Após o ciclo estimado",
         "dias": (dias_apos_plantio, dias_apos_plantio),
         "temp_ideal": (15, 35),
         "precip_ideal_mm": (0, 200),
         "sensivel_geada": False,
         "sensibilidade": "baixo",
-        "descricao": "Safra ja foi colhida. Dados para analise historica."
+        "descricao": "Ciclo de calendário estimado encerrado; colheita não confirmada."
     }
 
 
@@ -213,7 +213,7 @@ def faixa_com_tolerancia(min_ideal, max_ideal, pct=20):
         A margem e calculada como (max-min) * pct / 100.
     
     MOTIVO DOS PARAMETROS:
-    pct=20: 20% de tolerancia e o padrao agronomico usado pela EMBRAPA para
+    pct=20: margem experimental do protótipo, sem calibração, usada para
     definir faixas aceitaveis. Por exemplo, se a faixa ideal de temperatura
     e 20-30°C, valores entre 18-32°C sao considerados aceitaveis sem causar
     danos significativos.

@@ -1,10 +1,11 @@
 {
     "name": "SafraSmart",
     "short_name": "SafraSmart",
-    "description": "Plataforma de Decisoes Agricolas",
+    "description": "Apoio à decisão agrícola com registros offline",
     "start_url": "/",
+    "scope": "/",
     "display": "standalone",
-    "background_color": "#1b5e20",
+    "background_color": "#f0f4f0",
     "theme_color": "#2e7d32",
-    "orientation": "portrait"
+    "icons": [{"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}]
 }
