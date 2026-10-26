@@ -3,13 +3,22 @@ import multiprocessing as mp
 import os
 from datetime import datetime, timedelta
 
+from .credenciais_gee import carregar_dados_gee, gee_configurado
 
-def autenticar_gee(caminho_chave):
+
+def autenticar_gee(caminho_chave=None):
+    dados = carregar_dados_gee(caminho_chave)
+    projeto = os.getenv("GEE_PROJECT", "").strip() or dados.get("project_id")
+    if not isinstance(projeto, str) or not projeto.strip():
+        raise RuntimeError("Defina GEE_PROJECT ou use um JSON com project_id.")
     import ee
     from google.oauth2 import service_account
-    credentials = service_account.Credentials.from_service_account_file(caminho_chave,
-        scopes=["https://www.googleapis.com/auth/earthengine"])
-    ee.Initialize(credentials, project=os.getenv("GEE_PROJECT") or credentials.project_id)
+    try:
+        credentials = service_account.Credentials.from_service_account_info(dados,
+            scopes=["https://www.googleapis.com/auth/earthengine"])
+    except (ValueError, TypeError):
+        raise RuntimeError("Credencial GEE inválida. Verifique o JSON e a chave privada da conta de serviço.") from None
+    ee.Initialize(credentials, project=projeto.strip())
     ee.data.setDeadline(80000)
     ee.data.setMaxRetries(1)
 
@@ -65,7 +74,7 @@ def _executar_ndvi(lat, lon, data_inicio, data_fim, intervalo_dias, buffer_metro
 
 def _ndvi_filho(canal, args):
     try:
-        autenticar_gee(os.environ["GEE_KEY_PATH"])
+        autenticar_gee()
         canal.send({"resultado": _executar_ndvi(*args)})
     except Exception:
         # Nunca devolver mensagem que possa incluir o conteúdo da chave privada.
@@ -79,8 +88,8 @@ def buscar_ndvi(lat, lon, data_inicio, data_fim, intervalo_dias=15, buffer_metro
         return None
     if intervalo_dias < 1 or (data_fim - data_inicio).days > 730 or not 1 <= buffer_metros <= 1000:
         raise ValueError("Período, intervalo ou área NDVI fora dos limites.")
-    if not os.getenv("GEE_KEY_PATH"):
-        raise RuntimeError("GEE_KEY_PATH não configurado.")
+    if not gee_configurado():
+        raise RuntimeError("Configure GEE_SERVICE_ACCOUNT_JSON ou GEE_KEY_PATH no .env.")
     contexto = mp.get_context("spawn")
     receber, enviar = contexto.Pipe(duplex=False)
     processo = contexto.Process(target=_ndvi_filho, args=(enviar, (lat, lon, data_inicio, data_fim, intervalo_dias, buffer_metros)))

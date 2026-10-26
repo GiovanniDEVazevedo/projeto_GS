@@ -66,7 +66,7 @@ O histórico do servidor é isolado por uma credencial aleatória por dispositiv
 pip install -r requirements-ndvi.txt
 ```
 
-Configure `GEE_KEY_PATH` e `GEE_PROJECT` no `.env`, com acesso ao Earth Engine habilitado na conta de serviço. Ou use `ENABLE_NDVI=false`. Sem credenciais, o relatório informa indisponibilidade e continua com os demais dados.
+Cole o JSON completo da conta de serviço em `GEE_SERVICE_ACCOUNT_JSON` no `.env`. O projeto é lido automaticamente do campo `project_id`; `GEE_PROJECT` permite sobrescrevê-lo. A alternativa existente por arquivo, `GEE_KEY_PATH`, continua disponível. Veja o [exemplo para copiar e colar](docs/EARTH_ENGINE.md). A conta precisa de acesso ao Earth Engine no Google Cloud. Use `ENABLE_NDVI=false` para desativar; sem credenciais, o relatório informa indisponibilidade e continua com os demais dados.
 
 O cálculo usa Sentinel-2 SR, máscara por pixel SCL, cobertura mínima configurável e amostra em raio de 50 metros. Não representa a propriedade inteira nem diagnostica a causa de baixo vigor. O trabalho é isolado em processo para permitir encerramento efetivo por timeout.
 
