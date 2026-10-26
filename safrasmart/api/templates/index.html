@@ -3,215 +3,115 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SafraSmart</title>
-    <meta name="theme-color" content="#2e7d32">
+    <meta name="theme-color" content="#f5f5f7">
+    <meta name="description" content="Uma visão clara da sua lavoura. Clima, vegetação e planejamento da colheita no mesmo lugar.">
+    <title>SafraSmart — Sua lavoura em perspectiva</title>
     <link rel="manifest" href="/static/manifest.json">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #f0f4f0; color: #1b1b1b; padding: 16px; padding-bottom: 40px;
-        }
-        .header {
-            background: linear-gradient(135deg, #1b5e20, #2e7d32);
-            color: white; padding: 20px 16px; border-radius: 12px; margin-bottom: 16px;
-            display: flex; justify-content: space-between; align-items: center;
-        }
-        .header h1 { font-size: 22px; }
-        .header .sub { font-size: 12px; opacity: 0.8; margin-top: 2px; }
-        .badge {
-            font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: 600;
-        }
-        .badge.online { background: #a5d6a7; color: #1b5e20; }
-        .badge.offline { background: #ffcdd2; color: #b71c1c; }
-        .badge.atencao { background: #fff3cd; color: #664d03; }
-        .card {
-            background: white; border-radius: 12px; padding: 16px; margin-bottom: 12px;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-        }
-        .card h2 {
-            font-size: 14px; color: #2e7d32; margin-bottom: 12px;
-            text-transform: uppercase; letter-spacing: 1px;
-        }
-        label { display: block; font-size: 13px; color: #555; margin: 8px 0 4px; }
-        input, select, textarea {
-            width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px;
-            font-size: 15px; outline: none; transition: border 0.2s;
-        }
-        input:focus, select:focus, textarea:focus { border-color: #2e7d32; }
-        textarea { resize: vertical; min-height: 60px; font-family: inherit; }
-        .gps-btn {
-            background: #e8f5e9; color: #2e7d32; border: 2px dashed #a5d6a7;
-            padding: 12px; border-radius: 8px; text-align: center; font-size: 15px;
-            cursor: pointer; width: 100%; margin-bottom: 8px; transition: 0.2s;
-        }
-        .gps-btn:hover { background: #c8e6c9; }
-        .gps-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .coord-row { display: flex; gap: 8px; }
-        .coord-row input { width: 50%; }
-        .btn-analisar {
-            background: linear-gradient(135deg, #2e7d32, #43a047);
-            color: white; border: none; padding: 14px; border-radius: 8px;
-            font-size: 17px; font-weight: 600; width: 100%; cursor: pointer;
-            transition: transform 0.1s; margin-top: 4px;
-        }
-        .btn-analisar:active { transform: scale(0.98); }
-        .btn-analisar:disabled { opacity: 0.5; cursor: not-allowed; }
-        .resultado { display: none; }
-        .score-geral {
-            text-align: center; padding: 20px;
-            border-radius: 12px; margin-bottom: 12px;
-        }
-        .score-geral.recomendado { background: linear-gradient(135deg, #e8f5e9, #c8e6c9); }
-        .score-geral.atencao { background: linear-gradient(135deg, #fff8e1, #ffecb3); }
-        .score-geral.nao { background: linear-gradient(135deg, #ffebee, #ffcdd2); }
-        .score-geral .numero { font-size: 42px; font-weight: 700; }
-        .score-geral .rotulo { font-size: 18px; font-weight: 600; margin-top: 4px; }
-        .score-geral .prob { font-size: 13px; opacity: 0.7; margin-top: 8px; }
-        .barra-score { margin: 6px 0; }
-        .barra-score .nome { font-size: 13px; display: flex; justify-content: space-between; }
-        .barra-score .barra-bg {
-            height: 8px; background: #e0e0e0; border-radius: 4px; margin-top: 2px; overflow: hidden;
-        }
-        .barra-score .barra-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
-        .alerta-item {
-            padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px;
-            display: flex; align-items: flex-start; gap: 8px;
-        }
-        .alerta-item:last-child { border: none; }
-        .sev-alta { color: #c62828; }
-        .sev-media { color: #f57f17; }
-        .sev-baixa { color: #558b2f; }
-        .acao-item { padding: 6px 0; font-size: 14px; display: flex; gap: 8px; }
-        .acao-item .num { color: #2e7d32; font-weight: 600; min-width: 24px; }
-        .loading {
-            text-align: center; padding: 20px; color: #666; display: none;
-        }
-        .loading .spinner {
-            display: inline-block; width: 24px; height: 24px; border: 3px solid #e0e0e0;
-            border-top-color: #2e7d32; border-radius: 50%; animation: spin 0.8s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .erro-msg { color: #c62828; padding: 12px; background: #ffebee; border-radius: 8px; margin-top: 8px; }
-        .fase-info { font-size: 13px; color: #555; padding: 8px 0; }
-        .ndvi-info { font-size: 13px; color: #555; margin-top: 8px; padding: 8px; background: #f5f5f5; border-radius: 6px; }
-        .hidden { display: none; }
-        body { max-width: 800px; margin: auto; }
-        .historico-item { display: block; width: 100%; text-align: left; padding: 12px; margin: 6px 0; background: #f4f7f4; border: 1px solid #d8e4d8; border-radius: 8px; cursor: pointer; }
-        .indicador { padding: 10px 0; border-bottom: 1px solid #eee; }
-        .indicador small { display: block; color: #555; margin-top: 4px; }
-    </style>
+    <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/static/dashboard.css">
 </head>
 <body>
-
-<div class="header">
-    <div>
-        <h1>SafraSmart</h1>
-        <div class="sub">Plataforma de Decisoes Agricolas</div>
+<a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+<header class="topbar">
+    <div class="topbar-inner">
+        <a href="#visao-geral" class="brand" data-view="dashboard" aria-label="SafraSmart, visão geral">
+            <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 26V15M16 20C7 21 5 13 6 8c6 0 10 3 10 9M16 15C16 7 22 5 27 6c0 6-3 10-11 10"/></svg></span>
+            Safra<span>Smart</span>
+        </a>
+        <nav class="segmented" aria-label="Navegação principal">
+            <button type="button" data-view="dashboard" class="active" aria-current="page">Visão geral</button>
+            <button type="button" data-view="cadastro">Nova análise</button>
+            <button type="button" data-view="historico">Histórico</button>
+        </nav>
+        <div class="badge" id="statusBadge" role="status">Conectando</div>
     </div>
-    <div class="badge offline" id="statusBadge">Verificando servidor</div>
-</div>
-
-<div class="card">
-    <h2>Localizacao</h2>
-    <button class="gps-btn" id="gpsBtn">Capturar Localizacao GPS</button>
-    <button class="gps-btn" id="ipBtn" style="margin-top:6px;font-size:13px;padding:8px;">Usar localizacao aproximada (IP)</button>
-    <div class="coord-row">
-        <input type="number" id="lat" min="-90" max="90" step="any" aria-label="Latitude" placeholder="Latitude" >
-        <input type="number" id="lon" min="-180" max="180" step="any" aria-label="Longitude" placeholder="Longitude" >
-    </div>
-    <div style="display:flex;gap:8px;margin-top:6px;">
-        <input type="text" id="cidadeInput" placeholder="Digite cidade e estado (ex: Sorriso/MT)" style="flex:1;">
-        <button class="gps-btn" id="geoBtn" style="padding:8px;font-size:13px;margin:0;width:auto;white-space:nowrap;">Buscar</button>
-    </div>
-    <div id="localInfo" class="fase-info"></div>
-</div>
-
-<div class="card">
-    <h2>Dados da Lavoura</h2>
-    <label for="propriedade">Propriedade</label>
-    <input id="propriedade" maxlength="120" value="Minha propriedade">
-    <label>Cultura</label>
-    <select id="cultura">
-        <option value="soja">Soja</option>
-        <option value="milho">Milho</option>
-    </select>
-    <label>Data de Plantio</label>
-    <input type="date" id="dataPlantio" required aria-describedby="dataPlantioAjuda">
-    <p id="dataPlantioAjuda" class="fase-info">Informe a data real do plantio. Se foi hoje, ainda não há dias completos para avaliar o desenvolvimento da lavoura.</p>
-    <label>Tipo de Solo</label>
-    <select id="solo">
-        <option value="argiloso">Argiloso</option>
-        <option value="misto">Misto</option>
-        <option value="arenoso">Arenoso</option>
-    </select>
-    <label>Irrigacao</label>
-    <select id="irrigacao">
-        <option value="sequeiro">Sequeiro (sem irrigacao)</option>
-        <option value="aspersao">Aspersao</option>
-        <option value="gotejo">Gotejo</option>
-    </select>
-    <label>Produtividade Anterior (sc/ha)</label>
-    <input type="number" id="prodAnt" min="0" max="1000" step="any" placeholder="Ex: 80">
-    <label>Observacoes</label>
-    <textarea id="observacoes" maxlength="4000" placeholder="Descreva as condicoes da lavoura..."></textarea>
-</div>
-
-<button class="btn-analisar" id="btnAnalisar">SALVAR E ANALISAR</button>
-<p id="mensagem" role="status" aria-live="polite" style="padding:12px 0;"></p>
-<div class="card">
-    <h2>Histórico neste dispositivo</h2>
-    <p id="filaInfo" class="fase-info"></p>
-    <button class="gps-btn" id="syncBtn">Sincronizar agora</button>
-    <button class="gps-btn" id="exportBtn">Exportar cópia dos registros</button>
-    <div id="historicoLista"></div>
-</div>
-
-<div class="loading" id="loading">
-    <div class="spinner"></div>
-    <div style="margin-top: 8px;">Salvando no dispositivo...</div>
-</div>
-
-<div class="resultado" id="resultado">
-    <div class="card score-geral" id="scoreGeral">
-        <div style="font-size:13px;opacity:0.6;">SÍNTESE DAS EVIDÊNCIAS</div>
-        <div class="numero" id="scoreValor" style="font-size:24px;"></div>
-        <div class="rotulo" id="scoreClassif">---</div>
-        <div class="prob" id="scoreProb"></div>
-    </div>
-
-    <div class="card">
-        <h2>Indicadores e cobertura</h2>
-        <div id="scoresParciais"></div>
-    </div>
-
-    <div class="card" id="alertasCard" style="display:none;">
-        <h2>Alertas</h2>
-        <div id="alertasLista"></div>
-    </div>
-
-    <div class="card" id="acoesCard" style="display:none;">
-        <h2>Acoes Recomendadas</h2>
-        <div id="acoesLista"></div>
-    </div>
-
-    <div class="card"><h2>Clima no período analisado</h2><div id="climaInfo" class="fase-info"></div></div>
-    <div class="card" id="faseCard">
-        <h2>Fase Fenologica</h2>
-        <div id="faseInfo" class="fase-info"></div>
-    </div>
-
-    <div class="card" id="ndviCard" style="display:none;">
-        <h2>NDVI Sentinel-2</h2>
-        <div id="ndviInfo" class="ndvi-info"></div>
-    </div>
-
-    <div class="card" id="errosCard" style="display:none;">
-        <h2>Avisos</h2>
-        <div id="errosLista"></div>
-    </div>
-</div>
-
+</header>
+<main id="conteudo" class="page">
+    <div class="page-notice" id="mensagem" role="status" aria-live="polite" aria-atomic="true"></div>
+    <section id="viewDashboard" class="view" aria-labelledby="dashboardTitulo">
+        <div class="page-heading">
+            <div><p class="eyebrow">VISÃO GERAL</p><h1 id="dashboardTitulo" tabindex="-1">Sua lavoura.<br><span>Com mais clareza.</span></h1><p class="page-subtitle" id="dashboardSubtitulo">Clima, vegetação e colheita. Tudo em perspectiva.</p></div>
+            <button type="button" class="button primary" data-view="cadastro"><span aria-hidden="true">+</span> Nova análise</button>
+        </div>
+        <div id="emptyDashboard" class="empty-dashboard panel">
+            <div class="empty-art" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><i></i></div>
+            <p class="eyebrow">DO CAMPO À DECISÃO</p><h2 id="emptyTitulo">O próximo passo começa com os seus dados.</h2>
+            <p id="emptyTexto">Cadastre a lavoura para acompanhar os indicadores e a fase estimada da cultura em um só painel.</p>
+            <button type="button" class="button primary" data-view="cadastro">Criar primeira análise <span aria-hidden="true">↗</span></button>
+            <div class="empty-features"><span>Clima no período</span><span>Vegetação por satélite</span><span>Planejamento da colheita</span></div>
+        </div>
+        <div id="resultado" hidden>
+            <section class="summary-panel panel" id="scoreGeral" aria-labelledby="resumoTitulo">
+                <div class="summary-copy"><p class="eyebrow">SÍNTESE DAS EVIDÊNCIAS</p><h2 id="resumoTitulo">Como está a sua lavoura</h2><span id="scoreValor" class="status-pill neutral">Sem dados</span><p id="scoreClassif" class="summary-description"></p><p id="scoreProb" class="microcopy"></p></div>
+                <div class="summary-number"><span id="indiceValor">—</span><span>índice experimental · de 0 a 10</span><p>Indicador de triagem.<br>Não é probabilidade de sucesso.</p></div>
+            </section>
+            <section class="metric-grid" aria-label="Principais indicadores">
+                <article class="panel metric"><div class="metric-label"><span>Temperatura média</span><span class="metric-icon" aria-hidden="true">°</span></div><p class="metric-value" id="tempValor">—</p><span id="tempEstado" class="metric-state neutral">Sem dados</span><p class="microcopy" id="tempDetalhe"></p></article>
+                <article class="panel metric"><div class="metric-label"><span>Chuva na janela</span><span class="metric-icon" aria-hidden="true">≋</span></div><p class="metric-value" id="chuvaValor">—</p><span id="chuvaEstado" class="metric-state neutral">Sem dados</span><p class="microcopy" id="chuvaDetalhe"></p></article>
+                <article class="panel metric"><div class="metric-label"><span>Vegetação · NDVI</span><span class="metric-icon" aria-hidden="true">⌁</span></div><p class="metric-value" id="ndviValor">—</p><span id="ndviEstado" class="metric-state neutral">Sem dados</span><p class="microcopy">Vigor observado; sem diagnóstico automático.</p></article>
+                <article class="panel metric"><div class="metric-label"><span>Desenvolvimento</span><span class="metric-icon" aria-hidden="true">◷</span></div><p class="metric-value" id="cicloValor">—</p><span id="cicloEstado" class="metric-state info">Fase estimada</span><p class="microcopy" id="cicloDetalhe"></p></article>
+            </section>
+            <div class="dashboard-grid">
+                <section class="panel conditions" aria-labelledby="condicoesTitulo">
+                    <div class="section-heading"><div><p class="eyebrow">LEITURA DOS INDICADORES</p><h2 id="condicoesTitulo">O que pede atenção.</h2></div><span class="small-tag">Escala 0–10</span></div>
+                    <div class="legend"><span class="good">Favorável ≥ 7</span><span class="warning">Atenção ≥ 5</span><span class="bad">Desfavorável &lt; 5</span></div><div id="scoresParciais" class="score-list"></div>
+                    <p class="microcopy">Barras maiores indicam melhor compatibilidade nas regras experimentais. Ausência de dados não equivale a uma nota zero.</p>
+                </section>
+                <section class="panel harvest-panel" aria-labelledby="colheitaTitulo">
+                    <div class="section-heading"><div><p class="eyebrow">OLHANDO PARA A FRENTE</p><h2 id="colheitaTitulo">Maturação e colheita.</h2></div><span aria-hidden="true" class="harvest-icon">↗</span></div>
+                    <span id="colheitaEstado" class="status-pill info"></span><p id="colheitaRotulo" class="microcopy"></p><p id="colheitaDatas" class="harvest-dates"></p><p id="colheitaDescricao"></p><ul id="colheitaCriterios" class="check-list"></ul><p id="colheitaLimitacao" class="microcopy"></p>
+                    <a id="colheitaFonte" class="text-link" href="https://www.infoteca.cnptia.embrapa.br/" target="_blank" rel="noopener noreferrer">Como confirmar em campo <span aria-hidden="true">↗</span></a>
+                </section>
+                <section class="panel phenology-panel" aria-labelledby="faseTitulo">
+                    <div class="section-heading"><div><p class="eyebrow">CADA FASE IMPORTA</p><h2 id="faseTitulo">O ritmo da sua cultura.</h2></div><span class="small-tag" id="faseCodigo">—</span></div>
+                    <div id="faseInfo" class="phase-summary"></div><div id="faseProgresso"></div><ol id="faseTimeline" class="phase-timeline" aria-label="Fases do calendário fenológico"></ol><p id="faseLimitacao" class="microcopy"></p>
+                </section>
+                <section class="panel coverage-panel" aria-labelledby="coberturaTitulo">
+                    <div class="section-heading"><div><p class="eyebrow">TRANSPARÊNCIA DOS DADOS</p><h2 id="coberturaTitulo">A base da análise.</h2></div></div><div id="coberturaBarras"></div><p id="climaInfo" class="microcopy"></p>
+                </section>
+                <section class="panel" id="ndviCard" hidden><div class="section-heading"><div><p class="eyebrow">SENTINEL-2</p><h2>Vegetação ao longo do tempo.</h2></div><span class="small-tag">NDVI · −1 a 1</span></div><div id="ndviGrafico" class="ndvi-chart"></div><p id="ndviInfo" class="microcopy"></p></section>
+                <section class="panel" id="acoesCard" hidden><div class="section-heading"><div><p class="eyebrow">PRÓXIMOS PASSOS</p><h2>Da leitura à ação.</h2></div></div><ol id="acoesLista" class="action-list"></ol></section>
+                <section class="panel" id="alertasCard" hidden><div class="section-heading"><div><p class="eyebrow">FIQUE DE OLHO</p><h2>Alertas da lavoura.</h2></div></div><div id="alertasLista" class="alert-list"></div></section>
+                <section class="panel notices-panel" id="errosCard" hidden><div class="section-heading"><div><p class="eyebrow">CONTEXTO E LIMITAÇÕES</p><h2>O que você precisa saber.</h2></div></div><ul id="errosLista" class="notice-list"></ul></section>
+            </div>
+            <p id="resultadoReferencia" class="dashboard-footnote"></p>
+        </div>
+    </section>
+    <section id="viewCadastro" class="view" hidden aria-labelledby="cadastroTitulo">
+        <div class="page-heading"><div><p class="eyebrow">NOVA ANÁLISE</p><h1 id="cadastroTitulo" tabindex="-1">Vamos conhecer<br><span>a sua lavoura.</span></h1><p class="page-subtitle">Informe os dados reais do cultivo para começar.</p></div><span class="small-tag">Salvamento no dispositivo</span></div>
+        <form id="analiseForm">
+            <div class="form-grid">
+                <section class="panel form-panel">
+                    <div class="section-heading"><div><p class="eyebrow">01 · NO MAPA</p><h2>Onde está a lavoura?</h2></div></div>
+                    <label for="propriedade">Nome da propriedade</label><input id="propriedade" maxlength="120" value="Minha propriedade" autocomplete="organization">
+                    <div class="location-actions"><button type="button" class="button secondary" id="gpsBtn">Usar meu GPS <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="7"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg></button><button type="button" class="button ghost" id="ipBtn">Localização por IP</button></div>
+                    <p class="microcopy">GPS usa a posição deste dispositivo. Cidade e IP são aproximações; confira o ponto da lavoura.</p>
+                    <div class="field-row"><div><label for="lat">Latitude</label><input type="number" id="lat" min="-90" max="90" step="any" required placeholder="Ex.: −12,55"></div><div><label for="lon">Longitude</label><input type="number" id="lon" min="-180" max="180" step="any" required placeholder="Ex.: −55,72"></div></div>
+                    <label for="cidadeInput">Buscar por cidade e estado</label><div class="search-field"><input type="text" id="cidadeInput" placeholder="Ex.: Sorriso, MT"><button type="button" class="button secondary" id="geoBtn">Buscar</button></div><p id="localInfo" class="microcopy" role="status"></p>
+                </section>
+                <section class="panel form-panel">
+                    <div class="section-heading"><div><p class="eyebrow">02 · SEU CULTIVO</p><h2>Uma safra, cada detalhe.</h2></div></div>
+                    <label for="cultura">Cultura</label><select id="cultura"><option value="soja">Soja</option><option value="milho">Milho para grãos</option></select>
+                    <div class="field-row"><div><label for="dataPlantio">Data de plantio <span class="required-label">obrigatória</span></label><input type="date" id="dataPlantio" required aria-describedby="dataPlantioAjuda"></div><div><label for="dataColheita">Data de colheita <span class="optional-label">opcional</span></label><input type="date" id="dataColheita" aria-describedby="dataColheitaAjuda"></div></div>
+                    <p id="dataPlantioAjuda" class="microcopy">Use a data real. Um plantio de hoje ainda não tem dias completos para avaliar.</p><p id="dataColheitaAjuda" class="microcopy">Preencha se já colheu. Ao deixar vazio, vamos confirmar e calcular uma faixa de maturação para orientar a avaliação da colheita.</p>
+                    <div class="field-row"><div><label for="solo">Tipo de solo</label><select id="solo"><option value="argiloso">Argiloso</option><option value="misto">Misto</option><option value="arenoso">Arenoso</option></select></div><div><label for="irrigacao">Irrigação</label><select id="irrigacao"><option value="sequeiro">Sequeiro</option><option value="aspersao">Aspersão</option><option value="gotejo">Gotejo</option></select></div></div>
+                    <label for="prodAnt">Produtividade anterior <span class="optional-label">sc/ha · opcional</span></label><input type="number" id="prodAnt" min="0" max="1000" step="any" placeholder="Ex.: 80">
+                </section>
+                <section class="panel form-panel form-observations"><div><p class="eyebrow">03 · SEU OLHAR NO CAMPO</p><h2>O que você tem observado?</h2><p class="microcopy">Seu relato ajuda na triagem dos sinais de atenção.</p></div><div><label for="observacoes">Observações <span class="optional-label">opcional</span></label><textarea id="observacoes" maxlength="4000" rows="4" placeholder="Ex.: folhas amareladas, chuva recente, presença de pragas…"></textarea></div></section>
+            </div>
+            <div class="form-footer"><p class="microcopy">Os dados são salvos neste dispositivo antes do envio.<br>Sem conexão, o pedido aguarda para ser sincronizado.</p><button type="submit" class="button primary large" id="btnAnalisar">Salvar e analisar <span aria-hidden="true">↗</span></button></div>
+            <div id="loading" class="loading" hidden role="status"><span class="spinner" aria-hidden="true"></span> Salvando no dispositivo…</div>
+        </form>
+    </section>
+    <section id="viewHistorico" class="view" hidden aria-labelledby="historicoTitulo">
+        <div class="page-heading"><div><p class="eyebrow">SEU HISTÓRICO</p><h1 id="historicoTitulo" tabindex="-1">Cada safra<br><span>conta uma história.</span></h1><p class="page-subtitle">Registros salvos neste dispositivo.</p></div><div class="history-actions"><button type="button" class="button secondary" id="syncBtn">Sincronizar agora</button><button type="button" class="button ghost" id="exportBtn">Exportar registros <span aria-hidden="true">↓</span></button></div></div>
+        <div class="panel history-panel"><p id="filaInfo" class="microcopy"></p><div id="historicoLista"></div></div>
+    </section>
+    <footer class="footer"><span>SafraSmart</span><p>Apoio à decisão agrícola. Estimativas para acompanhar, evidências para decidir.</p><span>Feito para o campo.</span></footer>
+</main>
+<dialog id="colheitaModal" aria-labelledby="colheitaModalTitulo" aria-describedby="colheitaModalTexto">
+    <form method="dialog"><span class="dialog-symbol" aria-hidden="true">◷</span><p class="eyebrow">ANTES DE CONTINUAR</p><h2 id="colheitaModalTitulo">A colheita ainda<br>não foi feita?</h2><p id="colheitaModalTexto">Você deixou a data de colheita em branco. Se ainda não colheu, vamos estimar a faixa de maturação pela fase fenológica da cultura.</p><p class="microcopy">A estimativa orienta a avaliação em campo; não confirma o ponto de colheita.</p><div class="dialog-actions"><button class="button primary" value="nao_realizada" autofocus>Ainda não colhi · calcular faixa</button><button class="button secondary" value="informar_data">Já colhi · informar a data</button><button class="button ghost" value="cancelar">Voltar</button></div></form>
+</dialog>
 <script type="module" src="/static/app.js"></script>
 </body>
 </html>

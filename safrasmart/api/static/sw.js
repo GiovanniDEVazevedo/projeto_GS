@@ -1,5 +1,5 @@
-const CACHE_NAME = 'safrasmart-v4-clima-cobertura-20261026';
-const SHELL = ['/', '/static/app.js', '/static/storage.js', '/static/sync.js', '/static/manifest.json', '/static/icon.svg'];
+const CACHE_NAME = 'safrasmart-v5-dashboard-colheita-20261026';
+const SHELL = ['/', '/static/dashboard.css', '/static/dashboard.js', '/static/app.js', '/static/storage.js', '/static/sync.js', '/static/manifest.json', '/static/icon.svg'];
 self.addEventListener('install', event => {
     event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(SHELL)));
     self.skipWaiting();

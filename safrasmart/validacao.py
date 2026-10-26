@@ -50,6 +50,29 @@ def validar(dados):
     except (ValueError, TypeError, KeyError):
         raise EntradaInvalida("data_plantio: use YYYY-MM-DD, de 1981 até os próximos dois anos.") from None
     saida["data_plantio"] = plantio.isoformat()
+    # Campos opcionais: não alterar a assinatura de operações de clientes antigos.
+    colheita = dados.get("data_colheita")
+    realizada = dados.get("colheita_realizada")
+    if realizada is not None and not isinstance(realizada, bool):
+        raise EntradaInvalida("colheita_realizada: informe true ou false.")
+    if colheita not in (None, ""):
+        try:
+            if not isinstance(colheita, str) or len(colheita) != 10:
+                raise ValueError
+            colheita = date.fromisoformat(colheita)
+        except (ValueError, TypeError):
+            raise EntradaInvalida("data_colheita: use uma data válida no formato YYYY-MM-DD.") from None
+        if colheita < plantio:
+            raise EntradaInvalida("data_colheita: não pode ser anterior ao plantio.")
+        if colheita > date.today():
+            raise EntradaInvalida("data_colheita: informe a data real da colheita, sem datas futuras.")
+        if realizada is False:
+            raise EntradaInvalida("A data de colheita foi preenchida, mas a colheita está marcada como não realizada.")
+        saida.update(data_colheita=colheita.isoformat(), colheita_realizada=True)
+    elif realizada is True:
+        raise EntradaInvalida("data_colheita: informe quando a colheita foi realizada.")
+    elif realizada is False:
+        saida.update(data_colheita=None, colheita_realizada=False)
     for campo, padrao, tamanho in [("observacoes", "", 4000), ("propriedade", "Minha propriedade", 120)]:
         valor = dados.get(campo, padrao)
         if not isinstance(valor, str) or len(valor) > tamanho:

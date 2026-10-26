@@ -12,35 +12,42 @@ from .scores import indisponivel, score_clima, score_geral, score_historico, sco
 from .recomendador import recomendar
 from .validacao import validar
 from .credenciais_gee import gee_configurado
+from .colheita import planejar_colheita
 
 log = logging.getLogger(__name__)
-VERSAO_MOTOR = "2.0.1"
+VERSAO_MOTOR = "2.1.0"
 
 
 def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
-             prod_ant=None, observacoes="", usar_ndvi=True, cache=None, hoje=None):
-    validar({"id": str(uuid4()), "lat": lat, "lon": lon, "cultura": cultura,
+             prod_ant=None, observacoes="", usar_ndvi=True, cache=None, hoje=None,
+             data_colheita=None, colheita_realizada=None):
+    entrada = validar({"id": str(uuid4()), "lat": lat, "lon": lon, "cultura": cultura,
              "data_plantio": data_plantio_dt.strftime("%Y-%m-%d"), "solo": solo,
-             "irrigacao": irrigacao, "prod_ant": prod_ant, "observacoes": observacoes})
+             "irrigacao": irrigacao, "prod_ant": prod_ant, "observacoes": observacoes,
+             "data_colheita": data_colheita, "colheita_realizada": colheita_realizada})
     hoje = hoje or hoje_local()
     plantio = data_plantio_dt.date()
-    dias = (hoje - plantio).days
+    colheita = planejar_colheita(cultura, plantio, hoje, data_colheita=entrada.get("data_colheita"),
+                                realizada=entrada.get("colheita_realizada"))
+    referencia_data = date.fromisoformat(colheita["data_referencia"])
+    dias = (referencia_data - plantio).days
     fase_nome, fase_dados = fase_atual(cultura, dias)
     tabela = obter_tabela(cultura)
     ciclo = max(f["dias"][1] for f in tabela.values())
     pos_ciclo = dias >= ciclo
     referencia = list(tabela.values())[-1] if pos_ciclo else fase_dados
-    fim = min(hoje - timedelta(days=1), plantio + timedelta(days=ciclo - 1))
+    fim = min(referencia_data - timedelta(days=1), plantio + timedelta(days=ciclo - 1))
     inicio_janela = max(plantio + timedelta(days=referencia["dias"][0]), fim - timedelta(days=29)) if dias >= 0 else fim - timedelta(days=29)
     resultado = {
         "metadata": {"data_analise": hoje.isoformat(), "lat": lat, "lon": lon, "cultura": cultura,
                      "data_plantio": plantio.isoformat(), "versao_motor": VERSAO_MOTOR,
-                     "contexto": "historico_do_ciclo_estimado" if pos_ciclo else "planejamento" if dias < 0 else "monitoramento",
+                     "data_referencia": referencia_data.isoformat(), "data_colheita": entrada.get("data_colheita"),
+                     "contexto": "historico_ate_colheita" if colheita["realizada"] else "historico_do_ciclo_estimado" if pos_ciclo else "planejamento" if dias < 0 else "monitoramento",
                      "natureza": "apoio_a_decisao_experimental"},
-        "clima": None, "indices": {}, "ndvi": None, "scores": None, "erros": [],
+        "clima": None, "indices": {}, "ndvi": None, "scores": None, "erros": [], "colheita": colheita,
         "fase": {"nome": fase_nome, "nome_amigavel": fase_dados["nome_amigavel"], "dias_apos_plantio": dias,
                  "sensivel_geada": referencia.get("sensivel_geada", False), "temp_ideal": referencia.get("temp_ideal"),
-                 "precip_ideal": referencia.get("precip_ideal_mm"), "estimada": True,
+                 "precip_ideal": referencia.get("precip_ideal_mm"), "estimada": True, "data_referencia": referencia_data.isoformat(),
                  "limitacao": "Calendário genérico; varia com cultivar, região e manejo. Não confirma colheita."},
         "observacao": analisar_obs(observacoes),
     }
@@ -69,12 +76,12 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
         log.exception("Dados meteorológicos inválidos")
         resultado["erros"].append("Dados climáticos inválidos ou incompletos.")
 
-    if usar_ndvi and plantio < hoje:
+    if usar_ndvi and plantio < referencia_data:
         if gee_configurado():
             try:
                 from .ndvi import buscar_ndvi
                 inicio_ndvi = datetime.combine(plantio, datetime.min.time())
-                fim_ndvi = datetime.combine(min(hoje, plantio + timedelta(days=ciclo)), datetime.min.time())
+                fim_ndvi = datetime.combine(min(referencia_data, plantio + timedelta(days=ciclo)), datetime.min.time())
                 calcular_ndvi = lambda: buscar_ndvi(lat, lon, inicio_ndvi, fim_ndvi)
                 chave_ndvi = {"tipo": "ndvi-scl-v2", "lat": lat, "lon": lon,
                               "inicio": plantio.isoformat(), "fim": fim_ndvi.isoformat(), "intervalo": 15, "buffer": 50}
@@ -95,7 +102,7 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
     if dias < 0:
         sc_clima = indisponivel("A data de plantio informada está no futuro. O histórico climático não permite avaliar uma fase que ainda não começou nem definir sozinho a melhor data de plantio.", "PLANTIO_FUTURO")
     elif dias == 0:
-        sc_clima = indisponivel("O plantio foi informado como hoje. Ainda não há dias completos após o plantio para esta análise. Confira se essa é a data real da sua lavoura.", "PLANTIO_HOJE")
+        sc_clima = indisponivel("Ainda não há dias completos entre o plantio e a data de referência desta análise. Confira a data real do plantio e, quando informada, da colheita.", "PLANTIO_HOJE")
     else:
         sc_clima = score_clima(janela, indices, referencia)
     if sc_clima["valor"] is None:
@@ -140,6 +147,15 @@ def exibir_relatorio(resultado):
     print(f"Local: {meta['lat']:.2f}, {meta['lon']:.2f}")
     print(f"Cultura: {meta['cultura'].title()}")
     print(f"Plantio: {meta['data_plantio']}")
+
+    if resultado.get("colheita"):
+        c = resultado["colheita"]
+        print(f"\nColheita: {c['titulo']}")
+        if c["data_colheita"]:
+            print(f"  Data informada: {c['data_colheita']}")
+        else:
+            print(f"  Faixa estimada para avaliar: {c['janela']['inicio']} a {c['janela']['fim']}")
+        print(f"  {c['limitacao']}")
 
     if resultado.get("fase"):
         f = resultado["fase"]
