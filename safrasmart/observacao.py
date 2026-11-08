@@ -2,7 +2,7 @@
 import re
 import unicodedata
 
-VERSAO = "2.0.0"
+VERSAO = "2.1.0"
 
 
 def normalizar(texto):
@@ -39,11 +39,16 @@ REGRAS = [
     ("clima_positivo", "chuva boa", r"chuva boa|chuvas regulares", "baixa"),
 ]
 PADROES = [(cat, evento, re.compile(r"\b(?:" + padrao + r")\b"), sev) for cat, evento, padrao, sev in REGRAS]
-DIVISOR = re.compile(r"[.!?;,\n]+|\b(?:mas|porem|contudo|entretanto|agora|hoje)\b|\be (?=(?:apareceu|surgiu|tem|ha|o solo|a terra|as folhas)\b)")
+DIVISOR = re.compile(
+    r"[.!?;,\n]+|\b(?:mas|porem|contudo|entretanto|agora|hoje)\b"
+    r"|\be (?=(?:apareceu|surgiu|tem|ha|o solo|a terra|as folhas)\b"
+    r"|(?:o|a|os|as) \w+(?: \w+){0,2} (?:se espalhou|apareceu|surgiu|foi|ficou|esta|voltou)\b)"
+)
 NEGACAO = re.compile(r"\b(?:nao|sem|nem|nenhum|nenhuma|ausencia de|livre de)\b")
 INCERTEZA = re.compile(r"\b(?:acho|talvez|parece|suspeit\w*|possivel|possivelmente|pode|medo de|nao sei|nao tenho certeza|nao descarto|nao descartamos)\b")
 HISTORICO = re.compile(r"\b(?:ano passado|safra passada|safra anterior|antigamente|anos atras|no passado)\b|\bem 20\d{2}\b")
 FUTURO = re.compile(r"\b(?:amanha|proxim[oa]|previsao|vai ter|podera)\b")
+RESOLVIDA = re.compile(r"^\s+(?:ja )?(?:foi|esta|ficou) (?:controlad[oa]s?|resolvid[oa]s?|eliminad[oa]s?)\b")
 
 
 def analisar_obs(texto):
@@ -56,12 +61,15 @@ def analisar_obs(texto):
                 prefixo = clausula[:match.start()]
                 # 'não sei se há' expressa dúvida; 'não só' não nega a ocorrência.
                 prefixo_negacao = re.sub(r"\bnao (?:so|apenas)\b", "", prefixo)
+                prefixo_negacao = re.sub(r"\bsem chuvas?\b", "", prefixo_negacao)
                 duvida = bool(INCERTEZA.search(prefixo))
                 negada = bool(NEGACAO.search(prefixo_negacao)) and not duvida
                 posterior = clausula[match.end():]
                 if re.match(r"\s+(?:nao (?:tem|ha|apareceu)|ausente|ausentes)\b", posterior):
                     negada = True
                 temporalidade = "historica" if HISTORICO.search(clausula) else "futura" if FUTURO.search(clausula) else "atual"
+                if temporalidade == "atual" and RESOLVIDA.match(posterior):
+                    temporalidade = "resolvida"
                 ocorrencias.append({"categoria": categoria, "evento": evento, "palavra": evento,
                     "presenca": "negada" if negada else "suspeita" if duvida else "relatada",
                     "temporalidade": temporalidade, "confirmacao": "nao_verificada",

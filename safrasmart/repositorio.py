@@ -7,7 +7,7 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
-from .db import Analise, CacheDado, Propriedade, Safra, agora, sessoes
+from .db import Analise, CacheDado, Propriedade, Safra, SafraTalhao, Talhao, agora, sessoes
 
 
 class Conflito(ValueError):
@@ -26,6 +26,7 @@ def serializar(item):
         "criado_em": item.criado_em.isoformat() + "Z",
         "atualizado_em": item.atualizado_em.isoformat() + "Z",
         "versao_motor": item.versao_motor,
+        **({"talhao": item.entrada["talhao"]} if item.entrada.get("talhao") else {}),
     }
 
 
@@ -37,8 +38,14 @@ class Repositorio:
     def registrar(self, dono, dados):
         assinatura = hashlib.sha256(json.dumps(dados, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         aid = identificador("analise", dono, dados["id"])
-        pid = identificador("propriedade", dono, dados["propriedade"], dados["lat"], dados["lon"])
-        sid = identificador("safra", pid, dados["cultura"], dados["data_plantio"], dados["solo"], dados["irrigacao"])
+        talhao = dados.get("talhao")
+        tid = identificador("talhao", dono, talhao["id"]) if talhao else None
+        if tid:
+            pid = identificador("propriedade-talhoes", dono, dados["propriedade"].casefold())
+            sid = identificador("safra-talhao", tid, dados["cultura"], dados["data_plantio"])
+        else:
+            pid = identificador("propriedade", dono, dados["propriedade"], dados["lat"], dados["lon"])
+            sid = identificador("safra", pid, dados["cultura"], dados["data_plantio"], dados["solo"], dados["irrigacao"])
         # Repetir a transação resolve tanto colisões da operação quanto a criação
         # concorrente da mesma propriedade/safra em operações diferentes.
         for tentativa in range(3):
@@ -54,11 +61,20 @@ class Repositorio:
                             lat=dados["lat"], lon=dados["lon"], precisao_m=dados["precisao_m"],
                             origem_localizacao=dados["origem_localizacao"]))
                         s.flush()
+                    if tid:
+                        atual = s.get(Talhao, tid)
+                        if atual is None:
+                            s.add(Talhao(id=tid, propriedade_id=pid, dados=talhao))
+                            s.flush()
+                        elif atual.propriedade_id != pid or atual.dados != talhao:
+                            raise Conflito("Este talhão já tem outro contorno, nome ou propriedade. Cadastre um novo talhão.")
                     if not s.get(Safra, sid):
                         s.add(Safra(id=sid, propriedade_id=pid, cultura=dados["cultura"],
                             data_plantio=date.fromisoformat(dados["data_plantio"]),
                             solo=dados["solo"], irrigacao=dados["irrigacao"]))
                         s.flush()
+                        if tid:
+                            s.add(SafraTalhao(safra_id=sid, talhao_id=tid))
                     item = Analise(id=aid, operacao_id=dados["id"], dono=dono, safra_id=sid,
                                    assinatura=assinatura, entrada=dados)
                     s.add(item)
@@ -92,6 +108,12 @@ class Repositorio:
                      "data_plantio": sf.data_plantio.isoformat(), "solo": sf.solo, "irrigacao": sf.irrigacao}
                     for sf in s.scalars(select(Safra).join(Propriedade).where(Propriedade.dono == dono).limit(200))]
 
+    def talhoes(self, dono):
+        with self.session() as s:
+            consulta = (select(Talhao, Propriedade.nome).join(Propriedade)
+                        .where(Propriedade.dono == dono).order_by(Talhao.criado_em.desc(), Talhao.id))
+            return [{**talhao.dados, "propriedade": nome} for talhao, nome in s.execute(consulta.limit(500))]
+
     def reivindicar(self, lease_segundos=300):
         momento = agora()
         elegivel = or_(and_(Analise.status == "pendente", Analise.disponivel_em <= momento),
@@ -115,7 +137,8 @@ class Repositorio:
                     tentativas=Analise.tentativas + 1, atualizado_em=momento))
                 if r.rowcount == 1:
                     item = s.get(Analise, aid)
-                    return {"id": item.id, "token": token, "entrada": item.entrada, "tentativas": item.tentativas}
+                    return {"id": item.id, "token": token, "entrada": item.entrada,
+                            "dono": item.dono, "tentativas": item.tentativas}
         return None
 
     def finalizar(self, job, resultado=None, erro=None):

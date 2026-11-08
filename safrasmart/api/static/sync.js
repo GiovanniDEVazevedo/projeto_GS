@@ -1,6 +1,7 @@
 // Uma resposta HTTP 200 não confirma todos os itens. Somente a confirmação
 // individual persistida pode mudar o estado local; os registros nunca são apagados.
 const ESTADOS_SERVIDOR = new Set(['pendente', 'processando', 'ok', 'erro']);
+const LIMITE_LOTE_BYTES = 240 * 1024;
 
 export function mensagemDaAnalise(registro, processamentoDisponivel = null) {
     if (!registro.sincronizado) return registro.erro || 'Registro salvo neste dispositivo. Aguardando acesso ao servidor para enviar.';
@@ -18,9 +19,25 @@ export function criarSincronizador({storage, request}) {
     async function executar() {
         const registros = await storage.todos();
         const pendentes = registros.filter(r => !r.sincronizado && !['invalido', 'conflito'].includes(r.estado));
-        for (let i = 0; i < pendentes.length; i += 50) {
-            const lote = pendentes.slice(i, i + 50);
-            const respostas = await request('/api/sync', {method: 'POST', body: JSON.stringify(lote.map(r => r.dados))});
+        const medidor = new TextEncoder();
+        let i = 0;
+        while (i < pendentes.length) {
+            const lote = [], corpos = [];
+            let tamanho = 2;
+            while (i < pendentes.length && lote.length < 50) {
+                const json = JSON.stringify(pendentes[i].dados);
+                const bytes = medidor.encode(json).length + (lote.length ? 1 : 0);
+                if (tamanho + bytes > LIMITE_LOTE_BYTES) break;
+                tamanho += bytes;
+                corpos.push(json);
+                lote.push(pendentes[i++]);
+            }
+            if (!lote.length) {
+                await storage.confirmar({id: pendentes[i++].id, status: 'invalido', persistido: false,
+                    erro: 'O registro excede o tamanho de envio. Os dados foram preservados para revisão.'});
+                continue;
+            }
+            const respostas = await request('/api/sync', {method: 'POST', body: '[' + corpos.join(',') + ']'});
             if (!Array.isArray(respostas)) throw new Error('Resposta de sincronização inválida.');
             for (const resposta of respostas) {
                 if (!resposta || !lote.some(r => r.id === resposta.id)) continue;

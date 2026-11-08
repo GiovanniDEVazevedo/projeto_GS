@@ -1,3 +1,5 @@
+import {renderizarRelatorioRegional} from './relatorio-regional.js';
+
 // A apresentação usa os indicadores do motor; não transforma lacunas em zero.
 export const numeroValido = valor => typeof valor === 'number' && Number.isFinite(valor);
 export const formatarNumero = (valor, casas = 1) => numeroValido(valor)
@@ -138,10 +140,21 @@ function renderizarNdvi(n) {
         detalhes.append(elemento('summary', 'Ver valores das observações'));
         const tabela = elemento('table');
         const thead = elemento('thead'), head = elemento('tr');
-        for (const titulo of ['Data da cena', 'NDVI']) { const th = elemento('th', titulo); th.scope = 'col'; head.append(th); }
+        const qualidade = new Map((n.janelas || []).map(j => [j.data_ultima_cena, j]));
+        const colunas = qualidade.size ? ['Data da cena', 'NDVI', 'Cobertura válida', 'Pixels válidos'] : ['Data da cena', 'NDVI'];
+        for (const titulo of colunas) { const th = elemento('th', titulo); th.scope = 'col'; head.append(th); }
         thead.append(head); tabela.append(thead);
         const tbody = elemento('tbody');
-        for (const p of pontos) { const tr = elemento('tr'); tr.append(elemento('td', formatarData(p.data)), elemento('td', formatarNumero(p.valor, 3))); tbody.append(tr); }
+        for (const p of pontos) {
+            const tr = elemento('tr');
+            tr.append(elemento('td', formatarData(p.data)), elemento('td', formatarNumero(p.valor, 3)));
+            if (qualidade.size) {
+                const janela = qualidade.get(p.data);
+                const cobertura = numeroValido(janela?.cobertura) ? formatarNumero(janela.cobertura * 100) + '%' : '—';
+                tr.append(elemento('td', cobertura), elemento('td', formatarNumero(janela?.pixels_validos, 0)));
+            }
+            tbody.append(tr);
+        }
         tabela.append(tbody); detalhes.append(tabela);
         $('ndviGrafico').append(svg, detalhes);
     }
@@ -151,7 +164,8 @@ function renderizarNdvi(n) {
 export function renderizarDashboard(r, dados = {}) {
     const meta = r.metadata || {}, ind = r.indices || {}, parciais = r.scores?.parciais || {};
     const geral = visualDoIndice(r.scores);
-    $('dashboardSubtitulo').textContent = `${dados.propriedade || 'Lavoura'} · ${(meta.cultura || dados.cultura || 'cultura não informada').toUpperCase()} · Plantio em ${formatarData(meta.data_plantio || dados.data_plantio)}`;
+    const nome = [dados.propriedade || 'Lavoura', meta.talhao?.nome || dados.talhao?.nome].filter(Boolean).join(' · ');
+    $('dashboardSubtitulo').textContent = `${nome} · ${(meta.cultura || dados.cultura || 'cultura não informada').toUpperCase()} · Plantio em ${formatarData(meta.data_plantio || dados.data_plantio)}`;
     $('scoreGeral').dataset.tone = geral.tom;
     estado('scoreValor', geral.valor === null ? 'Dados insuficientes' : geral.rotulo, geral.tom);
     $('indiceValor').textContent = formatarNumero(geral.valor);
@@ -203,6 +217,7 @@ export function renderizarDashboard(r, dados = {}) {
     $('faseLimitacao').textContent = r.fase?.limitacao || 'Fase estimada por calendário; varia com cultivar, região e manejo.';
     renderizarColheita(r.colheita);
     renderizarNdvi(r.ndvi);
+    renderizarRelatorioRegional(r.regional, r.casos_talhao, dados, {elemento, formatarNumero, formatarData});
     const rec = r.recomendacao || {};
     for (const [card, lista, itens, tag] of [['acoesCard', 'acoesLista', rec.acoes_recomendadas || [], 'li'], ['errosCard', 'errosLista', r.erros || [], 'li']]) {
         $(card).hidden = !itens.length;

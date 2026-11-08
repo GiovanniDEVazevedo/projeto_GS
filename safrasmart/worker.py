@@ -56,12 +56,25 @@ def _filho(canal, url, dados):
     engine = criar_engine(url)
     try:
         from .analisar import analisar
+        from .regional.perfil import contexto
+        repo = Repositorio(engine)
         resultado = analisar(lat=dados["lat"], lon=dados["lon"], cultura=dados["cultura"],
             data_plantio_dt=datetime.fromisoformat(dados["data_plantio"]), solo=dados["solo"],
             irrigacao=dados["irrigacao"], prod_ant=dados["prod_ant"], observacoes=dados["observacoes"],
             data_colheita=dados.get("data_colheita"), colheita_realizada=dados.get("colheita_realizada"),
-            usar_ndvi=booleano_env("ENABLE_NDVI", True),
-            cache=CacheAnalitico(Repositorio(engine)))
+            usar_ndvi=booleano_env("ENABLE_NDVI", True), talhao=dados.get("talhao"),
+            cache=CacheAnalitico(repo))
+        referencia = resultado.get("metadata", {}).get("data_referencia")
+        if referencia:
+            inicio_regional = time.monotonic()
+            try:
+                with repo.session() as s:
+                    resultado["regional"] = contexto(s, dados, datetime.fromisoformat(referencia).date())
+            except (SQLAlchemyError, ValueError, KeyError):
+                log.warning("Contexto regional indisponível durante a análise.")
+                resultado["regional"] = {"status": "regional_indisponivel"}
+            log.info("contexto_regional status=%s duracao_ms=%.1f", resultado["regional"]["status"],
+                     (time.monotonic() - inicio_regional) * 1000)
         canal.send({"resultado": resultado})
     except Exception:
         log.exception("Falha no processamento")
@@ -119,6 +132,14 @@ def processar_um(repo, executar=None, parar=None):
         log.exception("analise_falhou id=%s tentativa=%s", job["id"], job["tentativas"])
         repo.finalizar(job, erro="Não foi possível concluir a análise. Uma nova tentativa será feita até o limite de 3.")
     else:
+        if isinstance(resultado, dict) and job.get("dono") and job["entrada"].get("talhao"):
+            from .regional.casos import casos_do_talhao
+            try:
+                with repo.session() as s:
+                    resultado["casos_talhao"] = casos_do_talhao(s, job["dono"], job["entrada"], resultado)
+            except (SQLAlchemyError, ValueError, KeyError):
+                log.warning("Comparação do talhão indisponível.")
+                resultado["casos_talhao"] = {"status": "indisponivel"}
         repo.finalizar(job, resultado=resultado)
         log.info("analise_concluida id=%s duracao_s=%.2f", job["id"], time.monotonic() - inicio)
     return True

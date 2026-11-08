@@ -22,6 +22,7 @@ from werkzeug.serving import make_server
 from safrasmart.analisar import analisar
 from safrasmart.api.server import create_app
 from safrasmart.db import migrar
+from safrasmart.regional import catalogo, perfil
 from safrasmart.worker import processar_um
 
 
@@ -46,7 +47,9 @@ def concluir(repo, *, quente=False, satelite=False, sem_clima=False):
             r = analisar(dados['lat'], dados['lon'], dados['cultura'], datetime.fromisoformat(dados['data_plantio']),
                          dados['solo'], dados['irrigacao'], prod_ant=dados['prod_ant'], observacoes=dados['observacoes'],
                          usar_ndvi=False, data_colheita=dados.get('data_colheita'),
-                         colheita_realizada=dados.get('colheita_realizada'), hoje=HOJE)
+                         colheita_realizada=dados.get('colheita_realizada'), hoje=HOJE, talhao=dados.get('talhao'))
+        with repo.session() as s:
+            r['regional'] = perfil.contexto(s, dados, date.fromisoformat(r['metadata']['data_referencia']))
         if satelite:
             # Série explicitamente fictícia, restrita ao teste do gráfico.
             r['ndvi'] = {'datas': [(HOJE - timedelta(days=x)).isoformat() for x in [60, 45, 30, 15]],
@@ -77,6 +80,85 @@ def abrir_resultado(page, nome):
 
 def sem_overflow(page):
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'Há conteúdo escapando horizontalmente'
+
+
+def preparar_regional(repo):
+    malha = {'type': 'Polygon', 'coordinates': [[[-56, -13], [-55, -13], [-55, -12], [-56, -12], [-56, -13]]]}
+    medidas = {'rendimento': {'valor': 6900, 'original': '6900', 'unidade': 'Quilogramas por Hectare'}}
+    safra = {'cultura': 'milho', 'recorte': 'total_anual', 'ano': 2024, 'tabela': '1612', 'medidas': medidas}
+    regra = {'id': 'a' * 24, 'cultura': 'milho', 'nome': 'Milho 1ª Safra', 'grupo': 20, 'solo': 11, 'manejo': 1,
+             'manejo_nome': 'Sequeiro', 'clima': '0', 'nivel_manejo': '', 'produtividade': '',
+             'portaria': 'Portaria de teste', 'decendios': [30] + [0] * 35}
+    with repo.session.begin() as s:
+        catalogo.cadastrar_municipio(s, '5107925', 'Sorriso', 'MT', malha, 'Malha de teste')
+        meta = {'fonte': 'Fixture de teste', 'versao': '1', 'url': 'https://example.org', 'licenca': 'Fixture'}
+        catalogo.publicar(s, 'pam', '5107925', {'series': [safra]}, recorte='1612', **meta)
+        catalogo.publicar(s, 'zarc', '5107925', {'regras': [regra]}, recorte='2026/2027', **meta)
+
+
+def testar_talhao(page, context, repo):
+    preparar_regional(repo)
+    preencher(page, 'Área piloto')
+    page.locator('#cultura').select_option('milho')
+    page.locator('#irrigacao').select_option('sequeiro')
+    context.set_offline(True)
+    page.locator('#talhaoNovo').click()
+    expect(page.locator('#talhaoMapa')).to_be_visible()
+    page.locator('#talhaoNome').fill('Faixa Norte')
+    for lat, lon in [('-12.551', '-55.721'), ('-12.551', '-55.719'), ('-12.549', '-55.719'), ('-12.549', '-55.721')]:
+        page.locator('#verticeLat').fill(lat)
+        page.locator('#verticeLon').fill(lon)
+        page.locator('#talhaoAdicionarVertice').click()
+    page.locator('#talhaoGuardar').click()
+    expect(page.locator('#talhaoModal')).not_to_be_visible()
+    identificador = page.locator('#talhaoSelecionado').input_value()
+    assert identificador
+    page.reload()
+    preencher(page, 'Área piloto')
+    page.locator('#talhaoSelecionado').select_option(identificador)
+    expect(page.locator('#propriedade')).to_have_value('Área piloto')
+    expect(page.locator('#lat')).to_have_attribute('readonly', '')
+    page.locator('#cultura').select_option('milho')
+    page.get_by_text('Ficha de vistoria', exact=True).click()
+    page.locator('#vistoriaPasso').fill('Verificar a umidade na faixa norte.')
+    page.locator('#btnAnalisar').click()
+    page.get_by_role('button', name='Ainda não colhi · calcular faixa').click()
+    expect(page.locator('#viewDashboard')).to_be_visible()
+    context.set_offline(False)
+    page.locator('nav [data-view="historico"]').click()
+    page.locator('#syncBtn').click()
+    item = page.locator('.history-item').filter(has_text='Área piloto')
+    expect(item.locator('.status-pill')).to_have_text('Na fila do servidor')
+    concluir(repo)
+    abrir_resultado(page, 'Área piloto')
+    expect(page.locator('#dashboardSubtitulo')).to_contain_text('Faixa Norte')
+    expect(page.locator('#regionalResultado')).to_contain_text('Sorriso')
+    page.get_by_text('Histórico municipal · PAM', exact=True).click()
+    expect(page.locator('#regionalResultado')).to_contain_text('6.900')
+    page.get_by_text('Ficha de vistoria', exact=True).first.click()
+    expect(page.locator('#regionalResultado')).to_contain_text('Verificar a umidade na faixa norte.')
+    sem_overflow(page)
+    page.locator('nav [data-view="cadastro"]').click()
+    page.get_by_text('Planejamento ZARC', exact=True).click()
+    page.locator('#zarcSafra').fill('2026/2027')
+    page.locator('#zarcBuscar').click()
+    expect(page.locator('#zarcRegra')).to_contain_text('Grupo I · AD1 · Sequeiro')
+    page.locator('#zarcRegra').select_option('a' * 24)
+    sem_overflow(page)
+    page.locator('#btnAnalisar').click()
+    page.get_by_role('button', name='Ainda não colhi · calcular faixa').click()
+    page.locator('nav [data-view="historico"]').click()
+    page.locator('#syncBtn').click()
+    mais_recente = page.locator('.history-item').filter(has_text='Área piloto').first
+    expect(mais_recente.locator('.status-pill')).to_have_text('Na fila do servidor')
+    concluir(repo)
+    page.locator('#syncBtn').click()
+    expect(mais_recente.locator('.status-pill')).to_have_text('Resultado disponível')
+    mais_recente.click()
+    page.get_by_text('Janelas oficiais · ZARC', exact=True).click()
+    expect(page.locator('#regionalResultado')).to_contain_text('Portaria de teste')
+    sem_overflow(page)
+    page.screenshot(path=str(SAIDA / 'talhao-regional-celular.png'), full_page=True)
 
 
 def executar(config):
@@ -221,8 +303,9 @@ def executar(config):
             expect(historico).to_contain_text('Produtividade anterior não informada neste registro.')
             expect(page.locator('#ndviValor')).to_have_text('—')
             expect(page.locator('#ndviCard')).not_to_be_visible()
+            testar_talhao(page, context, app.extensions['repo'])
             assert not erros, erros
-            print('OK: modal, cancelamento, datas, persistência, dashboard, cores, NDVI, celular, offline e reconexão. Nenhum erro JavaScript.')
+            print('OK: dashboard, colheita, talhão offline, sincronização, PAM, ZARC e vistoria. Nenhum erro JavaScript.')
             print(f'Capturas: {SAIDA}')
         finally:
             context.close()
