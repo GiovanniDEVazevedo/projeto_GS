@@ -1,5 +1,7 @@
-const CACHE_NAME = 'safrasmart-v6-dashboard-cadastro';
-const SHELL = ['/', '/static/dashboard.css', '/static/dashboard.js', '/static/app.js', '/static/storage.js', '/static/sync.js', '/static/manifest.json', '/static/icon.svg'];
+const CACHE_NAME = 'safrasmart-v7-talhoes-regionais';
+const SHELL = ['/', '/static/dashboard.css', '/static/dashboard.js', '/static/app.js', '/static/storage.js',
+    '/static/sync.js', '/static/talhoes.js', '/static/consulta-regional.js', '/static/relatorio-regional.js',
+    '/static/vendor/leaflet/leaflet.js', '/static/vendor/leaflet/leaflet.css', '/static/manifest.json', '/static/icon.svg'];
 self.addEventListener('install', event => {
     event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(SHELL)));
     self.skipWaiting();

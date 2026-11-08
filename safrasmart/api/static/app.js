@@ -1,6 +1,8 @@
 import * as storage from './storage.js';
 import {criarSincronizador, mensagemDaAnalise} from './sync.js';
 import {renderizarDashboard, formatarData} from './dashboard.js';
+import {criarControleTalhoes} from './talhoes.js';
+import {criarConsultaRegional} from './consulta-regional.js';
 
 const $ = id => document.getElementById(id);
 let token;
@@ -13,7 +15,33 @@ let atualizando = false;
 let processamentoDisponivel = null;
 let salvando = false;
 let resultadoExibido;
+let referenciasCarregadas = false;
 const mensagem = texto => { $('mensagem').textContent = texto; };
+const regional = criarConsultaRegional({request, config: storage.config, salvarConfig: storage.salvarConfig});
+const talhoes = criarControleTalhoes({
+    salvar: storage.salvarTalhao,
+    aoSelecionar(talhao) {
+        aplicarTalhao(talhao);
+        $('municipioIBGE').value = '';
+        regional.limparZarc();
+    },
+});
+
+function aplicarTalhao(talhao) {
+    for (const id of ['propriedade', 'lat', 'lon']) $(id).readOnly = Boolean(talhao);
+    for (const id of ['gpsBtn', 'ipBtn', 'geoBtn']) $(id).disabled = Boolean(talhao);
+    if (talhao) {
+        $('propriedade').value = talhao.propriedade;
+        $('lat').value = talhao.lat;
+        $('lon').value = talhao.lon;
+        origem = 'talhao';
+        precisao = null;
+        $('localInfo').textContent = 'A análise usará o ponto de referência do contorno.';
+    } else if (origem === 'talhao') {
+        origem = 'manual';
+        $('localInfo').textContent = 'Confira as coordenadas antes de analisar por ponto.';
+    }
+}
 
 function mostrarView(nome, focar = true) {
     const views = {dashboard: ['viewDashboard', 'dashboardTitulo'], cadastro: ['viewCadastro', 'cadastroTitulo'], historico: ['viewHistorico', 'historicoTitulo']};
@@ -32,7 +60,8 @@ function mostrarPendente(registro) {
     $('emptyDashboard').hidden = false;
     $('emptyTitulo').textContent = ['erro', 'invalido', 'conflito'].includes(registro.estado) ? 'Seus dados estão preservados.' : 'Sua análise está a caminho.';
     $('emptyTexto').textContent = mensagemDaAnalise(registro, processamentoDisponivel);
-    $('dashboardSubtitulo').textContent = `${registro.dados.propriedade || 'Lavoura'} · ${registro.dados.cultura.toUpperCase()} · Plantio em ${formatarData(registro.dados.data_plantio)}`;
+    const nome = [registro.dados.propriedade || 'Lavoura', registro.dados.talhao?.nome].filter(Boolean).join(' · ');
+    $('dashboardSubtitulo').textContent = `${nome} · ${registro.dados.cultura.toUpperCase()} · Plantio em ${formatarData(registro.dados.data_plantio)}`;
 }
 
 async function request(url, options = {}) {
@@ -59,6 +88,14 @@ async function sincronizar() {
         const diagnostico = await health.json();
         processamentoDisponivel = typeof diagnostico.worker?.ativo === 'boolean' ? diagnostico.worker.ativo : null;
         await sincronizarFila();
+        if (!referenciasCarregadas) {
+            referenciasCarregadas = true;
+            const carregadas = await Promise.allSettled([
+                regional.carregarMunicipios(true),
+                request('/api/talhoes').then(itens => Promise.all(itens.map(storage.salvarTalhao))),
+            ]);
+            referenciasCarregadas = carregadas.every(r => r.status === 'fulfilled');
+        }
         $('statusBadge').textContent = processamentoDisponivel === false ? 'Servidor disponível · análises pausadas' : 'Servidor disponível';
         $('statusBadge').className = processamentoDisponivel === false ? 'badge atencao' : 'badge online';
         intervalo = 15000;
@@ -82,6 +119,7 @@ function textoElemento(tag, texto, classe) {
 }
 
 async function atualizarHistorico() {
+    talhoes.atualizar(await storage.todosTalhoes());
     const registros = (await storage.todos()).sort((a, b) => b.criado_em.localeCompare(a.criado_em));
     const pendentes = registros.filter(r => !r.sincronizado).length;
     const processando = registros.filter(r => r.sincronizado && ['pendente', 'processando'].includes(r.estado)).length;
@@ -96,7 +134,7 @@ async function atualizarHistorico() {
         botao.type = 'button';
         const copy = textoElemento('span', '');
         copy.append(textoElemento('strong', registro.dados.propriedade || 'Propriedade'),
-            textoElemento('small', `${registro.dados.cultura.toUpperCase()} · Plantio: ${formatarData(registro.dados.data_plantio)} · ${registro.dados.data_colheita ? 'Colheita: ' + formatarData(registro.dados.data_colheita) : registro.dados.colheita_realizada === false ? 'Ainda não colhida' : 'Colheita não informada'}`));
+            textoElemento('small', `${registro.dados.talhao ? registro.dados.talhao.nome + ' · ' : ''}${registro.dados.cultura.toUpperCase()} · Plantio: ${formatarData(registro.dados.data_plantio)} · ${registro.dados.data_colheita ? 'Colheita: ' + formatarData(registro.dados.data_colheita) : registro.dados.colheita_realizada === false ? 'Ainda não colhida' : 'Colheita não informada'}`));
         const tom = registro.estado === 'ok' ? 'info' : ['erro', 'invalido', 'conflito'].includes(registro.estado) ? 'warning' : 'neutral';
         botao.append(copy, textoElemento('span', nomes[registro.estado] || registro.estado, 'status-pill ' + tom));
         botao.addEventListener('click', () => {
@@ -130,6 +168,9 @@ function preencherFormulario(dados) {
     atualizarLimitesDatas();
     origem = dados.origem_localizacao || 'manual';
     precisao = dados.precisao_m ?? null;
+    talhoes.selecionar(dados.talhao || null, false);
+    aplicarTalhao(dados.talhao);
+    regional.preencher(dados);
 }
 
 function atualizarLimitesDatas() {
@@ -163,6 +204,7 @@ async function enviarAnalise() {
     salvando = true;
     $('btnAnalisar').disabled = true;
     try {
+        const complementos = regional.dados();
         if (!$('dataColheita').value) {
             const resposta = await confirmarColheita();
             if (resposta === 'informar_data') {
@@ -182,7 +224,8 @@ async function enviarAnalise() {
             cultura: $('cultura').value, data_plantio: $('dataPlantio').value, solo: $('solo').value,
             data_colheita: $('dataColheita').value || null, colheita_realizada: Boolean($('dataColheita').value),
             irrigacao: $('irrigacao').value, prod_ant: prod, observacoes: $('observacoes').value,
-            origem_localizacao: origem, precisao_m: precisao};
+            origem_localizacao: origem, precisao_m: precisao, ...complementos};
+        if (talhoes.valor()) dados.talhao = talhoes.valor();
         await storage.salvar({id, dados, estado: 'pendente', sincronizado: false,
             criado_em: new Date().toISOString(), resultado: null});
         selecionada = id;
@@ -281,6 +324,7 @@ async function iniciar() {
             }
         }
         if (local) await definirLocalizacao(local.lat, local.lon, local.fonte, local.accuracy);
+        await regional.carregarMunicipios(false);
         await atualizarHistorico();
         $('btnAnalisar').disabled = false;
         if ('serviceWorker' in navigator) {

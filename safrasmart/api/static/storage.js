@@ -37,6 +37,9 @@ export const obter = id => transacao('registros', 'readonly', store => store.get
 export const salvar = registro => transacao('registros', 'readwrite', store => store.put(registro));
 export const config = chave => transacao('config', 'readonly', store => store.get(chave));
 export const salvarConfig = (chave, valor) => transacao('config', 'readwrite', store => store.put(valor, chave));
+export const todosTalhoes = () => transacao('config', 'readonly',
+    store => store.getAll(IDBKeyRange.bound('talhao:', 'talhao:\uffff')));
+export const salvarTalhao = talhao => salvarConfig('talhao:' + talhao.id, talhao);
 
 export async function tokenDispositivo() {
     const db = await abrirBanco();
@@ -60,12 +63,19 @@ export async function tokenDispositivo() {
 export async function confirmar(resposta) {
     const db = await abrirBanco();
     return new Promise((resolve, reject) => {
-        const tx = db.transaction('registros', 'readwrite');
+        const tx = db.transaction(['registros', 'config'], 'readwrite');
         const store = tx.objectStore('registros');
         const req = store.get(resposta.id);
         req.onsuccess = () => {
             if (!req.result) return;
-            store.put({ ...req.result, estado: resposta.status, sincronizado: resposta.persistido === true,
+            const dados = {...req.result.dados};
+            if (resposta.talhao && resposta.talhao.id === dados.talhao?.id) {
+                dados.talhao = {...resposta.talhao, propriedade: dados.propriedade};
+                dados.lat = resposta.talhao.lat;
+                dados.lon = resposta.talhao.lon;
+                tx.objectStore('config').put(dados.talhao, 'talhao:' + dados.talhao.id);
+            }
+            store.put({ ...req.result, dados, estado: resposta.status, sincronizado: resposta.persistido === true,
                 tentativas: resposta.tentativas ?? req.result.tentativas ?? 0,
                 resultado: resposta.resultado || req.result.resultado || null, erro: resposta.erro || null,
                 atualizado_em: resposta.atualizado_em || new Date().toISOString() });

@@ -23,16 +23,17 @@ def autenticar_gee(caminho_chave=None):
     ee.data.setMaxRetries(1)
 
 
-def _executar_ndvi(lat, lon, data_inicio, data_fim, intervalo_dias, buffer_metros):
+def _executar_ndvi(lat, lon, data_inicio, data_fim, intervalo_dias, buffer_metros, geometria):
     import ee
-    ponto = ee.Geometry.Point([lon, lat]).buffer(buffer_metros)
+    area = (ee.Geometry.Polygon(geometria["coordinates"], proj="EPSG:4326", geodesic=False)
+            if geometria else ee.Geometry.Point([lon, lat]).buffer(buffer_metros))
 
     def mascarar(imagem):
         scl = imagem.select("SCL")
         valido = scl.eq(4).Or(scl.eq(5)).Or(scl.eq(6))
         return imagem.updateMask(valido).normalizedDifference(["B8", "B4"]).rename("NDVI").copyProperties(imagem, ["system:time_start"])
 
-    colecao = (ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED").filterBounds(ponto)
+    colecao = (ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED").filterBounds(area)
                .filterDate(data_inicio.isoformat(), data_fim.isoformat())
                .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 80)).map(mascarar))
     quantidade = (data_fim - data_inicio).days
@@ -46,30 +47,32 @@ def _executar_ndvi(lat, lon, data_inicio, data_fim, intervalo_dias, buffer_metro
         imagens = colecao.filterDate(inicio, fim)
         n = imagens.size()
         vazia = ee.Image.constant(0).rename("NDVI").updateMask(ee.Image.constant(0))
-        composite = ee.Image(ee.Algorithms.If(n.gt(0), imagens.median(), vazia)).clip(ponto)
-        cobertura = composite.mask().unmask(0).rename("valido")
+        composite = ee.Image(ee.Algorithms.If(n.gt(0), imagens.median(), vazia))
+        cobertura = composite.mask().unmask(0, sameFootprint=False).rename("valido")
         stats = composite.addBands(cobertura).reduceRegion(
-            reducer=ee.Reducer.mean(), geometry=ponto, scale=10, maxPixels=1000000)
+            reducer=ee.Reducer.mean().combine(ee.Reducer.count(), sharedInputs=True),
+            geometry=area, crs="EPSG:6933", scale=10, maxPixels=1000000)
         ultima = ee.Algorithms.If(n.gt(0), ee.Date(imagens.aggregate_max("system:time_start")).format("YYYY-MM-dd"), "")
         return ee.Feature(None, {"inicio": inicio.format("YYYY-MM-dd"), "fim_exclusivo": fim.format("YYYY-MM-dd"),
-            "data_ultima_cena": ultima, "cenas": n, "ndvi": stats.get("NDVI"), "cobertura": stats.get("valido")})
+            "data_ultima_cena": ultima, "cenas": n, "ndvi": stats.get("NDVI_mean"),
+            "cobertura": stats.get("valido_mean"), "pixels_validos": stats.get("NDVI_count")})
 
     features = ee.FeatureCollection(inicios.map(compor)).getInfo()["features"]
     minimo = float(os.getenv("MIN_NDVI_COVERAGE", "0.5"))
-    janelas = []
-    for feature in features:
-        p = feature["properties"]
-        if p.get("ndvi") is not None and p.get("cobertura", 0) >= minimo:
-            janelas.append(p)
+    todas = [feature["properties"] for feature in features]
+    janelas = [p for p in todas if p.get("ndvi") is not None and (p.get("cobertura") or 0) >= minimo
+               and (p.get("pixels_validos") or 0) >= (4 if geometria else 1)]
     if not janelas:
         return None
     valores = [round(p["ndvi"], 3) for p in janelas]
     return {"datas": [p["data_ultima_cena"] for p in janelas], "ndvi": valores,
             "cobertura_pixels_validos": [round(p["cobertura"], 3) for p in janelas],
-            "janelas": janelas, "ndvi_medio_geral": round(sum(valores) / len(valores), 3),
+            "janelas": janelas, "janelas_avaliadas": len(todas), "cobertura_minima": minimo,
+            "ndvi_medio_geral": round(sum(valores) / len(valores), 3),
             "ndvi_max": max(valores), "ndvi_min": min(valores),
             "total_imagens_usadas": sum(p["cenas"] for p in janelas),
-            "fonte": "Sentinel-2 SR Harmonized", "mascara": "SCL classes 4, 5 e 6", "buffer_metros": buffer_metros}
+            "fonte": "Sentinel-2 SR Harmonized", "mascara": "SCL classes 4, 5 e 6",
+            "buffer_metros": None if geometria else buffer_metros}
 
 
 def _ndvi_filho(canal, args):
@@ -83,7 +86,8 @@ def _ndvi_filho(canal, args):
         canal.close()
 
 
-def buscar_ndvi(lat, lon, data_inicio, data_fim, intervalo_dias=15, buffer_metros=50, timeout_segundos=90):
+def buscar_ndvi(lat, lon, data_inicio, data_fim, intervalo_dias=15, buffer_metros=50, timeout_segundos=90,
+                *, geometria=None):
     if data_inicio >= data_fim:
         return None
     if intervalo_dias < 1 or (data_fim - data_inicio).days > 730 or not 1 <= buffer_metros <= 1000:
@@ -92,7 +96,8 @@ def buscar_ndvi(lat, lon, data_inicio, data_fim, intervalo_dias=15, buffer_metro
         raise RuntimeError("Configure GEE_SERVICE_ACCOUNT_JSON ou GEE_KEY_PATH no .env.")
     contexto = mp.get_context("spawn")
     receber, enviar = contexto.Pipe(duplex=False)
-    processo = contexto.Process(target=_ndvi_filho, args=(enviar, (lat, lon, data_inicio, data_fim, intervalo_dias, buffer_metros)))
+    args = (lat, lon, data_inicio, data_fim, intervalo_dias, buffer_metros, geometria)
+    processo = contexto.Process(target=_ndvi_filho, args=(enviar, args))
     processo.start()
     enviar.close()
     try:
