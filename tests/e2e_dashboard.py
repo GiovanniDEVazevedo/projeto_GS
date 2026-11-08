@@ -103,6 +103,9 @@ def executar(config):
             expect(page.locator('#emptyDashboard')).to_be_visible()
             page.screenshot(path=str(SAIDA / 'inicio-desktop.png'), full_page=True)
             preencher(page, 'Fazenda Horizonte')
+            page.locator('#solo').select_option('misto')
+            page.locator('#irrigacao').select_option('aspersao')
+            page.locator('#prodAnt').fill('72.5')
             page.screenshot(path=str(SAIDA / 'cadastro-desktop.png'), full_page=True)
             page.locator('#btnAnalisar').click()
             expect(page.locator('#colheitaModal')).to_be_visible()
@@ -132,9 +135,16 @@ def executar(config):
             concluir(app.extensions['repo'], satelite=True)
             abrir_resultado(page, 'Fazenda Horizonte')
             expect(page.locator('#scoreValor')).to_have_text('Favorável')
-            expect(page.locator('#scoresParciais .score-item').nth(0)).to_have_class('score-item good')
-            expect(page.locator('#scoresParciais .score-item').nth(2)).to_have_class('score-item neutral')
-            assert page.locator('#scoresParciais .score-item').nth(2).locator('[aria-valuenow]').count() == 0
+            scores = page.locator('#scoresParciais .score-item')
+            solo = scores.filter(has=page.get_by_text('Condições do solo', exact=True))
+            historico = scores.filter(has=page.get_by_text('Histórico produtivo', exact=True))
+            expect(scores.nth(0)).to_have_class('score-item good')
+            expect(solo).to_contain_text('Solo misto · Aspersão')
+            expect(historico).to_contain_text('72,5 sc/ha')
+            for item in (solo, historico):
+                expect(item).to_have_class('score-item neutral')
+                expect(item.locator('.bar-heading span')).to_have_text('Sem nota')
+                expect(item.get_by_role('meter')).to_have_count(0)
             expect(page.locator('#ndviGrafico svg')).to_be_visible()
             expect(page.locator('#colheitaDatas')).to_contain_text(str(HOJE.year))
             assert page.locator('#faseTimeline .atual').count() == 1
@@ -151,9 +161,14 @@ def executar(config):
             # Reabrir preserva o resultado e a escolha da colheita no IndexedDB.
             page.reload()
             expect(page.locator('#resultado')).to_be_visible()
+            expect(solo).to_contain_text('Solo misto · Aspersão')
+            expect(historico).to_contain_text('72,5 sc/ha')
             assert registros(page)[0]['dados']['colheita_realizada'] is False
             # Colheita real: validações nativas bloqueiam datas futuras e anteriores ao plantio.
             preencher(page, 'Talhão já colhido', dias=120, colheita=(HOJE - timedelta(days=121)).isoformat())
+            page.locator('#solo').select_option('arenoso')
+            page.locator('#irrigacao').select_option('gotejo')
+            page.locator('#prodAnt').fill('0')
             page.locator('#btnAnalisar').click()
             assert len(registros(page)) == 1
             page.locator('#dataColheita').fill((HOJE + timedelta(days=1)).isoformat())
@@ -177,7 +192,12 @@ def executar(config):
             page.evaluate('navigator.serviceWorker.ready')
             page.reload()
             context.set_offline(True)
+            page.reload()
+            expect(solo).to_contain_text('Solo arenoso · Gotejo')
+            expect(historico.get_by_text('Produtividade anterior informada de 0 sc/ha.', exact=True)).to_be_visible()
+            expect(historico.locator('.bar-heading span')).to_have_text('Sem nota')
             preencher(page, '<img src=x onerror=alert(1)> Offline', dias=50)
+            page.locator('#prodAnt').fill('')
             page.locator('#btnAnalisar').click()
             page.get_by_role('button', name='Ainda não colhi · calcular faixa').click()
             expect(page.locator('#viewDashboard')).to_be_visible()
@@ -197,6 +217,8 @@ def executar(config):
             assert page.locator('#dashboardSubtitulo img').count() == 0
             expect(page.locator('#scoreValor')).to_have_text('Dados insuficientes')
             expect(page.locator('#scoreGeral')).to_have_attribute('data-tone', 'neutral')
+            expect(historico.locator('.bar-heading span')).to_have_text('Sem dados')
+            expect(historico).to_contain_text('Produtividade anterior não informada neste registro.')
             expect(page.locator('#ndviValor')).to_have_text('—')
             expect(page.locator('#ndviCard')).not_to_be_visible()
             assert not erros, erros

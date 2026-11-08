@@ -39,7 +39,10 @@ function metrica(id, valor, unidade = '', casas = 1) {
     el.replaceChildren(document.createTextNode(formatarNumero(valor, casas)));
     if (numeroValido(valor) && unidade) el.append(elemento('small', ' ' + unidade));
 }
-function barra(nome, valor, maximo, rotulo, tom, detalhe = '') {
+function rotuloDaOpcao(id, valor) {
+    return Array.from($(id).options).find(opcao => opcao.value === valor)?.label;
+}
+function barra(nome, valor, maximo, rotulo, tom, detalhe = '', cadastro = '') {
     const disponivel = numeroValido(valor) && valor >= 0 && valor <= maximo;
     const item = elemento('div', undefined, 'score-item ' + tom);
     const titulo = elemento('div', undefined, 'bar-heading');
@@ -57,6 +60,11 @@ function barra(nome, valor, maximo, rotulo, tom, detalhe = '') {
         trilho.append(fill);
     } else trilho.setAttribute('role', 'img');
     item.append(titulo, trilho);
+    if (cadastro) {
+        const informado = elemento('p', undefined, 'microcopy');
+        informado.append(elemento('strong', cadastro));
+        item.append(informado);
+    }
     if (detalhe) item.append(elemento('p', detalhe, 'microcopy'));
     return item;
 }
@@ -162,16 +170,27 @@ export function renderizarDashboard(r, dados = {}) {
     $('tempDetalhe').textContent = r.fase?.temp_ideal ? `Referência experimental da fase: ${r.fase.temp_ideal[0]}–${r.fase.temp_ideal[1]} °C.` : 'Sem referência para esta fase.';
     $('chuvaDetalhe').textContent = numeroValido(ind.precip_total) ? `${formatarData(ind.periodo_inicio)} a ${formatarData(ind.periodo_fim)}${ind.precip_completa ? '' : '. Total parcial; há lacunas'}.` : 'As fontes não forneceram chuva utilizável.';
     $('cicloDetalhe').textContent = r.fase?.nome_amigavel || 'Fase indisponível.';
+    const solo = rotuloDaOpcao('solo', dados.solo);
+    const irrigacao = rotuloDaOpcao('irrigacao', dados.irrigacao);
+    const cadastroSolo = [solo && `Solo ${solo.toLowerCase()}`, irrigacao].filter(Boolean).join(' · ');
+    const produtividade = dados.prod_ant;
+    const cadastroHistorico = numeroValido(produtividade) && produtividade >= 0 && produtividade <= 1000
+        ? `Produtividade anterior informada de ${formatarNumero(produtividade, 2)} sc/ha.` : '';
     $('scoresParciais').replaceChildren();
-    for (const [nome, indice, detalhe] of [
+    for (const [nome, indice, detalhe, cadastro] of [
         ['Condições climáticas', parciais.clima, parciais.clima?.detalhes?.motivo || 'Temperatura e chuva comparadas com a fase estimada.'],
         ['Sinais de risco', parciais.risco, 'Nota maior indica menos sinais de risco nas evidências disponíveis; não comprova segurança.'],
-        ['Condições do solo', parciais.solo, parciais.solo?.detalhes?.motivo || 'Sem análise de solo para pontuar.'],
-        ['Histórico produtivo', parciais.historico, parciais.historico?.detalhes?.motivo || 'Sem base comparável para pontuar.'],
+        ['Condições do solo', parciais.solo, cadastroSolo
+            ? 'Dados do cadastro. A avaliação do solo depende de análise de solo e informações de manejo.'
+            : 'Tipo de solo e irrigação não informados neste registro.', cadastroSolo],
+        ['Histórico produtivo', parciais.historico, cadastroHistorico
+            ? 'A comparação depende de safras ou referências regionais comparáveis.'
+            : 'Produtividade anterior não informada neste registro.', cadastroHistorico],
     ]) {
         const visual = visualDoIndice(indice);
-        const rotulo = visual.valor === null ? 'Sem dados' : formatarNumero(visual.valor) + '/10 · ' + visual.rotulo;
-        $('scoresParciais').append(barra(nome, visual.valor, 10, rotulo, visual.tom, detalhe));
+        const rotulo = visual.valor === null ? (cadastro ? 'Sem nota' : visual.rotulo)
+            : formatarNumero(visual.valor) + '/10 · ' + visual.rotulo;
+        $('scoresParciais').append(barra(nome, visual.valor, 10, rotulo, visual.tom, detalhe, cadastro));
     }
     $('coberturaBarras').replaceChildren();
     for (const [nome, fracao] of [['Temperatura', ind.cobertura_temperatura], ['Chuva', ind.cobertura_precipitacao]]) {
