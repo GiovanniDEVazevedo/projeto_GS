@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.exceptions import HTTPException
 
 from safrasmart.db import Analise, criar_engine
+from safrasmart.regional.rotas import registrar_rotas
 from safrasmart.repositorio import Conflito, Repositorio
 from safrasmart.validacao import EntradaInvalida, validar
 
@@ -46,7 +47,7 @@ def create_app(config=None):
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
             "connect-src 'self' https://nominatim.openstreetmap.org https://ipinfo.io; "
-            "img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+            "img-src 'self' data: https://tile.openstreetmap.org; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
         )
         log.info("http method=%s endpoint=%s status=%s duracao_ms=%.1f", request.method,
                  request.endpoint, response.status_code, (time.monotonic() - g.get("inicio", time.monotonic())) * 1000)
@@ -136,6 +137,11 @@ def create_app(config=None):
     def safras():
         return jsonify(repo.safras(g.dono))
 
+    @app.route("/api/talhoes")
+    def talhoes():
+        return jsonify(repo.talhoes(g.dono))
+
+    registrar_rotas(app, repo)
     return app
 
 

@@ -114,11 +114,15 @@ Novas consultas climáticas e de satélite precisam de internet no servidor. Ao 
 
 O histórico do servidor é isolado por uma credencial aleatória por dispositivo armazenada no IndexedDB. Isso não é um sistema de contas: não há login, recuperação de credencial nem acesso automático entre aparelhos. Limpar os dados do navegador perde essa credencial e a cópia offline; mantenha backups. Para serviço público com vários clientes, ainda é necessário implementar contas e controles operacionais contra abuso.
 
+## Talhões e fontes regionais
+
+Desenhe ou selecione um talhão ao cadastrar a análise. A carga de malhas, PAM, ZARC e séries climáticas é feita separadamente pelo importador regional. Veja [como carregar o piloto e usar as fontes](docs/DADOS_REGIONAIS.md).
+
 ## NDVI opcional
 
 As dependências do Earth Engine são instaladas pelo comando único. Cole o JSON completo da conta de serviço em `GEE_SERVICE_ACCOUNT_JSON` no `.env`. O projeto é lido automaticamente do campo `project_id`; `GEE_PROJECT` permite sobrescrevê-lo. Veja o [exemplo para copiar e colar](docs/EARTH_ENGINE.md). A conta precisa de acesso ao Earth Engine no Google Cloud. Use `ENABLE_NDVI=false` para desativar; sem credenciais, o relatório informa indisponibilidade e continua com os demais dados.
 
-O cálculo usa Sentinel-2 SR, máscara por pixel SCL, cobertura mínima configurável e amostra em raio de 50 metros. Não representa a propriedade inteira nem diagnostica a causa de baixo vigor. O trabalho é isolado em processo para permitir encerramento efetivo por timeout.
+O cálculo usa Sentinel-2 SR, máscara por pixel SCL e cobertura mínima configurável. Usa os pixels válidos do contorno do talhão ou uma amostra em raio de 50 metros quando o cadastro é por ponto. É um indicador de vegetação para apoiar a vistoria. O trabalho é isolado em processo para permitir encerramento efetivo por timeout.
 
 ## Correções e confiabilidade
 
@@ -130,7 +134,7 @@ O cálculo usa Sentinel-2 SR, máscara por pixel SCL, cobertura mínima configur
 - Cache persistente reduz consultas repetidas. Processamento tem lease, recuperação após interrupção e até três tentativas; workers atrasados não sobrescrevem resultados novos.
 - Entradas são validadas; resultados são renderizados com `textContent`; API não entra no cache do service worker.
 
-As faixas agronômicas ainda precisam de calibração com especialistas. Planejamento de plantio requer referências regionais como o ZARC. Não foram implementados polígonos/PostGIS, diagnóstico automático, previsão de produtividade ou sincronização entre contas.
+As faixas agronômicas ainda precisam de calibração com especialistas. Planejamento de plantio requer referências regionais como o ZARC. Os contornos usam GeoJSON em SQLite ou PostgreSQL. A versão atual oferece triagem por evidências e mantém a autorização por dispositivo.
 
 ## Estrutura da inicialização
 

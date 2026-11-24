@@ -43,6 +43,44 @@ class Safra(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime, default=agora)
 
 
+class Talhao(Base):
+    __tablename__ = "talhoes"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    propriedade_id: Mapped[str] = mapped_column(ForeignKey("propriedades.id"), index=True)
+    dados: Mapped[dict] = mapped_column(JSON)
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=agora)
+
+
+class SafraTalhao(Base):
+    __tablename__ = "safras_talhoes"
+    safra_id: Mapped[str] = mapped_column(ForeignKey("safras.id"), primary_key=True)
+    talhao_id: Mapped[str] = mapped_column(ForeignKey("talhoes.id"), index=True)
+
+
+class Municipio(Base):
+    __tablename__ = "municipios"
+    codigo: Mapped[str] = mapped_column(String(7), primary_key=True)
+    nome: Mapped[str] = mapped_column(String(120))
+    uf: Mapped[str] = mapped_column(String(2))
+    geometria: Mapped[dict | None] = mapped_column(JSON)
+    malha_versao: Mapped[str | None] = mapped_column(String(60))
+
+
+class Importacao(Base):
+    __tablename__ = "importacoes"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    chave: Mapped[str] = mapped_column(String(120), index=True)
+    metadados: Mapped[dict] = mapped_column(JSON)
+    dados: Mapped[dict] = mapped_column(JSON)
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=agora)
+
+
+class FonteDados(Base):
+    __tablename__ = "fontes_dados"
+    chave: Mapped[str] = mapped_column(String(120), primary_key=True)
+    importacao_id: Mapped[str] = mapped_column(ForeignKey("importacoes.id"))
+
+
 class Analise(Base):
     # O UUID também é a chave de idempotência da operação offline.
     __tablename__ = "analises"

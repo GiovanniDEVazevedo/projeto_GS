@@ -15,16 +15,18 @@ from .credenciais_gee import gee_configurado
 from .colheita import planejar_colheita
 
 log = logging.getLogger(__name__)
-VERSAO_MOTOR = "2.1.0"
+VERSAO_MOTOR = "2.2.0"
 
 
 def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
              prod_ant=None, observacoes="", usar_ndvi=True, cache=None, hoje=None,
-             data_colheita=None, colheita_realizada=None):
+             data_colheita=None, colheita_realizada=None, talhao=None):
     entrada = validar({"id": str(uuid4()), "lat": lat, "lon": lon, "cultura": cultura,
              "data_plantio": data_plantio_dt.strftime("%Y-%m-%d"), "solo": solo,
              "irrigacao": irrigacao, "prod_ant": prod_ant, "observacoes": observacoes,
-             "data_colheita": data_colheita, "colheita_realizada": colheita_realizada})
+             "data_colheita": data_colheita, "colheita_realizada": colheita_realizada, "talhao": talhao})
+    talhao = entrada.get("talhao")
+    lat, lon = entrada["lat"], entrada["lon"]
     hoje = hoje or hoje_local()
     plantio = data_plantio_dt.date()
     colheita = planejar_colheita(cultura, plantio, hoje, data_colheita=entrada.get("data_colheita"),
@@ -39,7 +41,7 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
     fim = min(referencia_data - timedelta(days=1), plantio + timedelta(days=ciclo - 1))
     inicio_janela = max(plantio + timedelta(days=referencia["dias"][0]), fim - timedelta(days=29)) if dias >= 0 else fim - timedelta(days=29)
     resultado = {
-        "metadata": {"data_analise": hoje.isoformat(), "lat": lat, "lon": lon, "cultura": cultura,
+        "metadata": {"versao_relatorio": 2, "data_analise": hoje.isoformat(), "lat": lat, "lon": lon, "cultura": cultura,
                      "data_plantio": plantio.isoformat(), "versao_motor": VERSAO_MOTOR,
                      "data_referencia": referencia_data.isoformat(), "data_colheita": entrada.get("data_colheita"),
                      "contexto": "historico_ate_colheita" if colheita["realizada"] else "historico_do_ciclo_estimado" if pos_ciclo else "planejamento" if dias < 0 else "monitoramento",
@@ -51,6 +53,8 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
                  "limitacao": "Calendário genérico; varia com cultivar, região e manejo. Não confirma colheita."},
         "observacao": analisar_obs(observacoes),
     }
+    if talhao:
+        resultado["metadata"]["talhao"] = {"id": talhao["id"], "nome": talhao["nome"], "area_ha": talhao["area_ha"]}
     dados_clima = None
     janela = None
     parametros = {"tipo": "clima-v3-cobertura", "lat": lat, "lon": lon, "dias": 365,
@@ -82,14 +86,17 @@ def analisar(lat, lon, cultura, data_plantio_dt, solo, irrigacao,
                 from .ndvi import buscar_ndvi
                 inicio_ndvi = datetime.combine(plantio, datetime.min.time())
                 fim_ndvi = datetime.combine(min(referencia_data, plantio + timedelta(days=ciclo)), datetime.min.time())
-                calcular_ndvi = lambda: buscar_ndvi(lat, lon, inicio_ndvi, fim_ndvi)
-                chave_ndvi = {"tipo": "ndvi-scl-v2", "lat": lat, "lon": lon,
+                geometria = talhao["geometria"] if talhao else None
+                calcular_ndvi = (lambda: buscar_ndvi(lat, lon, inicio_ndvi, fim_ndvi, geometria=geometria)) if geometria else (
+                    lambda: buscar_ndvi(lat, lon, inicio_ndvi, fim_ndvi))
+                chave_ndvi = {"tipo": "ndvi-scl-v3", "lat": lat, "lon": lon, "geometria": geometria,
                               "inicio": plantio.isoformat(), "fim": fim_ndvi.isoformat(), "intervalo": 15, "buffer": 50}
                 ndvi = cache.obter_ou_calcular(chave_ndvi, calcular_ndvi, ttl=86400) if cache else calcular_ndvi()
                 if ndvi:
                     resultado["ndvi"] = {**ndvi, "total_imagens": len(ndvi["ndvi"]),
                         "ndvi_media": ndvi["ndvi_medio_geral"],
-                        "area": "Amostra em raio de 50 m do ponto; não representa o polígono da propriedade."}
+                        "area": ("Pixels válidos dentro do polígono do talhão." if geometria
+                                 else "Amostra em raio de 50 m do ponto.")}
                 else:
                     resultado["erros"].append("NDVI sem observações válidas no período ou abaixo da cobertura mínima.")
             except (ImportError, TimeoutError, RuntimeError, ValueError, OSError):

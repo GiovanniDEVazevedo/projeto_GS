@@ -100,6 +100,23 @@ test('lotes respeitam limite de 50', async () => {
     assert.equal(storage.data.size, 121);
 });
 
+test('fila de talhões divide o lote pelo tamanho UTF-8 e preserva registros grandes demais', async () => {
+    const registros = Array.from({length: 10}, (_, i) => record(String(i)));
+    for (const r of registros) r.dados.simulacao = 'á'.repeat(30_000);
+    registros[0].dados.simulacao = 'á'.repeat(150_000);
+    const storage = fakeStorage(registros);
+    let chamadas = 0;
+    await criarSincronizador({storage, request: async (_, opts) => {
+        chamadas++;
+        assert.ok(new TextEncoder().encode(opts.body).length <= 240 * 1024);
+        return JSON.parse(opts.body).map(r => ({id: r.id, status: 'ok', persistido: true}));
+    }})();
+    assert.ok(chamadas > 1);
+    assert.equal(storage.data.get('0').estado, 'invalido');
+    assert.equal([...storage.data.values()].filter(r => r.sincronizado).length, 9);
+    assert.equal(storage.data.size, 10);
+});
+
 import {mensagemDaAnalise} from '../safrasmart/api/static/sync.js';
 
 test('worker ausente não aparece como análise em andamento', () => {

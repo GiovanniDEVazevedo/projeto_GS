@@ -108,6 +108,19 @@ svg { display: block; }
 .bar-fill { height: 100%; width: var(--fill, 0%); border-radius: 100px; background: var(--tone); transition: width .5s ease; }
 .bar-track.unavailable { background: repeating-linear-gradient(115deg, #eeeef2, #eeeef2 6px, #f8f8fa 6px, #f8f8fa 12px); }
 .score-item .microcopy { margin-top: 8px; font-size: 10px; }
+.regional-panel { margin-top: 22px; min-width: 0; }
+.regional-panel details, .form-details { margin-top: 15px; }
+.regional-panel summary, .form-details summary { cursor: pointer; font-weight: 600; }
+.regional-panel .microcopy { margin: 8px 0; }
+.regional-table { overflow-x: auto; margin: 10px 0; }
+.regional-table table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.regional-table :is(th, td) { padding: 7px 9px; text-align: left; border-bottom: 1px solid #e7e7ed; }
+#talhaoModal { width: min(680px, calc(100vw - 24px)); max-height: 90vh; overflow-y: auto; }
+.talhao-editor { text-align: left; }
+.talhao-editor label { display: block; margin-top: 8px; }
+#talhaoMapa { height: min(280px, 36vh); min-height: 155px; margin: 10px 0; background: #e8efe9; border-radius: 10px; }
+.mapa-base-label input { width: auto; vertical-align: middle; }
+#talhaoErro { color: var(--red); }
 .harvest-panel { background: #f0f4ef; border-color: #e4eae0; }
 .harvest-icon { font-size: 29px; color: #62765c; line-height: 1; }
 .harvest-panel .status-pill { margin-bottom: 18px; }

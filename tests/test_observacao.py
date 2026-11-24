@@ -106,3 +106,13 @@ def test_sentimento_nao_produz_alerta_agronomico():
     r = recomendar({'geral': None}, analisar_obs('Estou preocupado e pessimista')['alertas'], {})
     assert r['status'] == 'SEM_DADOS'
     assert r['alertas_ativos'] == []
+
+
+@pytest.mark.parametrize("relato,esperados", [
+    ("Não tem lagarta e a ferrugem se espalhou", {"ferrugem"}),
+    ("Depois de 20 dias sem chuva a terra ficou ressecada", {"seca", "rachado"}),
+    ("A ferrugem foi controlada e agora a planta está saudável", set()),
+    ("Não vi a lagarta e a ferrugem", set()),
+])
+def test_relato_ativo_respeita_contexto(relato, esperados):
+    assert {a["evento"] for a in analisar_obs(relato)["alertas"]} == esperados
